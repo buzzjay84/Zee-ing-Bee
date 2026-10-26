@@ -1,0 +1,25 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { createAssetExporter } = require("../src/main/asset-exports");
+test("downloaded assets are copied with readable safe names and metadata", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zb-exports-"));
+  const source = path.join(root, "cache.mp4");
+  fs.writeFileSync(source, "original");
+  const exporter = createAssetExporter(path.join(root, "assets"));
+  const entry = { id: "abcdefghijk", path: source, title: "Official video", hasAudio: true };
+  const output = await exporter.exportFile(entry, { title: "Song: New/Version?", artist: "Singer" }, "music-videos");
+  assert.equal(path.basename(output), "Song_ New_Version_ - Singer [abcdefghijk].mp4");
+  assert.equal(fs.readFileSync(output, "utf8"), "original");
+  assert.equal(fs.readFileSync(source, "utf8"), "original");
+  const meta = JSON.parse(fs.readFileSync(`${output}.json`));
+  assert.equal(meta.artist, "Singer");
+  assert.equal(meta.hasAudio, true);
+  fs.writeFileSync(source, "replaced");
+  fs.utimesSync(source, new Date(), new Date(Date.now() + 2000));
+  await exporter.exportFile(entry, { title: "Song: New/Version?", artist: "Singer" }, "music-videos");
+  assert.equal(fs.readFileSync(output, "utf8"), "replaced");
+  await assert.rejects(exporter.exportFile(entry, {}, "../../escape"), /Invalid/);
+});

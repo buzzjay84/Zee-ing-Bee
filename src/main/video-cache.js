@@ -9,7 +9,7 @@ const activeDownloads = new Set();
 function cancelVideoDownloads() {
   for (const child of activeDownloads) child.kill();
 }
-const songKey = (song) => crypto.createHash("sha256").update(`${song.title.trim().toLowerCase()}|${song.artist.trim().toLowerCase()}`).digest("hex");
+const songKey = (song) => /^[a-f0-9]{64}$/.test(song.cacheKey ?? "") ? song.cacheKey : crypto.createHash("sha256").update(`${song.title.trim().toLowerCase()}|${song.artist.trim().toLowerCase()}`).digest("hex");
 
 async function ensureDownloader(toolsDir) {
   const name = process.platform === "win32" ? "yt-dlp.exe" : process.platform === "darwin" ? "yt-dlp_macos" : "yt-dlp_linux";
@@ -82,6 +82,34 @@ function validVideo(file) {
   } catch { return false; }
 }
 
+function hasAudioTrack(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, "r");
+    const total = fs.fstatSync(fd).size;
+    const header = Buffer.alloc(16);
+    let offset = 0;
+    while (offset + 8 <= total) {
+      fs.readSync(fd, header, 0, Math.min(16, total - offset), offset);
+      const type = header.toString("ascii", 4, 8);
+      let size = header.readUInt32BE(0);
+      if (size === 1) size = Number(header.readBigUInt64BE(8));
+      else if (size === 0) size = total - offset;
+      if (!Number.isSafeInteger(size) || size < 8 || offset + size > total) return false;
+      if (type === "moov" && size <= 16 * 1024 * 1024) {
+        const data = Buffer.alloc(size);
+        fs.readSync(fd, data, 0, size, offset);
+        let index = -1;
+        while ((index = data.indexOf("hdlr", index + 1, "ascii")) !== -1) {
+          if (data.toString("ascii", index + 12, index + 16) === "soun") return true;
+        }
+      }
+      offset += size;
+    }
+  } catch {} finally { if (fd !== undefined) fs.closeSync(fd); }
+  return false;
+}
+
 function createVideoCache(root, options = {}) {
   const policy = options.policy ?? SELECTION_POLICY;
   const manifestFile = path.join(root, "index.json");
@@ -90,15 +118,21 @@ function createVideoCache(root, options = {}) {
   let downloader;
   let tail = Promise.resolve();
   const pending = new Map();
+  async function mirror(saved, song) {
+    if (saved && options.onSaved) {
+      try { await options.onSaved(saved, song); } catch (error) { console.warn("Could not export downloaded asset:", error.message); }
+    }
+    return saved;
+  }
   const get = (song) => {
     const entry = manifest[songKey(song)];
     if (!entry || !/^[\w-]{11}$/.test(entry.id)) return null;
     const file = path.join(root, `${entry.id}.mp4`);
-    return validVideo(file) ? { ...entry, path: file } : null;
+    return validVideo(file) ? { ...entry, path: file, hasAudio: hasAudioTrack(file) } : null;
   };
   function save(song, candidate, onStatus = () => {}) {
     const existing = get(song);
-    if (existing?.id === candidate.id) return Promise.resolve(existing);
+    if (existing?.id === candidate.id && (!options.withAudio || existing.hasAudio)) return mirror(existing, song);
     if (!/^[\w-]{11}$/.test(candidate.id)) return Promise.reject(new Error("Invalid video ID"));
     const key = songKey(song);
     const requestKey = `${key}|${candidate.id}`;
@@ -107,27 +141,33 @@ function createVideoCache(root, options = {}) {
     const task = tail.catch(() => {}).then(async () => {
       fs.mkdirSync(root, { recursive: true });
       const finalFile = path.join(root, `${candidate.id}.mp4`);
-      if (!validVideo(finalFile)) {
+      if (!validVideo(finalFile) || options.withAudio && !hasAudioTrack(finalFile)) {
         onStatus("downloading");
         downloader ??= (options.ensureDownloader ?? ensureDownloader)(path.join(root, "tools")).catch((error) => { downloader = null; throw error; });
         const tool = await downloader;
-        const tempFile = path.join(root, `${candidate.id}.download.mp4`);
+        const tempFile = path.join(root, `${candidate.id}.${options.withAudio ? "audio." : ""}download.mp4`);
         if (fs.existsSync(tempFile) && !validVideo(tempFile)) fs.unlinkSync(tempFile);
         await (options.downloadVideo ?? downloadVideo)(tool, candidate.id, tempFile, { withAudio: Boolean(options.withAudio) });
         if (!validVideo(tempFile)) throw new Error("The downloaded video is incomplete");
+        if (options.withAudio && !hasAudioTrack(tempFile)) throw new Error("The video has no audio track. Try another version.");
         fs.renameSync(tempFile, finalFile);
       }
-      manifest[key] = { id: candidate.id, title: candidate.title, policy, savedAt: new Date().toISOString() };
+      manifest[key] = { id: candidate.id, title: candidate.title, songTitle: song.title, artist: song.artist, policy, savedAt: new Date().toISOString() };
       fs.writeFileSync(`${manifestFile}.tmp`, JSON.stringify(manifest, null, 2));
       fs.renameSync(`${manifestFile}.tmp`, manifestFile);
       onStatus("saved");
-      return get(song);
+      return mirror(get(song), song);
     }).finally(() => pending.delete(requestKey));
     pending.set(requestKey, task);
     tail = task.catch(() => {});
     return task;
   }
-  return { get, save, root };
+  const list = () => Object.entries(manifest).flatMap(([key, entry]) => {
+    if (!/^[\w-]{11}$/.test(entry.id)) return [];
+    const file = path.join(root, `${entry.id}.mp4`);
+    return validVideo(file) ? [{ ...entry, key, path: file, hasAudio: hasAudioTrack(file) }] : [];
+  });
+  return { get, save, list, root };
 }
 
-module.exports = { createVideoCache, ensureDownloader, validVideo, cancelVideoDownloads };
+module.exports = { createVideoCache, ensureDownloader, validVideo, hasAudioTrack, cancelVideoDownloads };

@@ -22,8 +22,10 @@
   <!-- Song list, keypad and reserve list -->
   <main id="home">
     <header class="topbar">
+      <div class="brand-notes" aria-hidden="true"><span>♪</span><span>♫</span><span>♬</span><span>♪</span><span>♫</span><span>♪</span></div>
       <div class="brand"><img class="brand-logo" src="../assets/branding/zee-ing-bee-logo.png" alt="Zee-ing Bee" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden>Zee-ing Bee</span></div>
       <div class="actions">
+        <button id="btn-music-videos" class="ghost">Music videos</button>
         <button id="btn-online-karaoke" class="ghost">Find online karaoke</button>
         <button id="btn-display" class="ghost">Open display</button>
         <button id="btn-add-folder" class="ghost">＋ Add song folder</button>
@@ -106,6 +108,8 @@
           <button id="tempo-up" aria-label="Faster">＋</button>
         </div>
         <button id="btn-guide" class="toggle on" aria-pressed="true" title="Play the vocal melody to help you follow the tune">Guide: On</button>
+        <button id="btn-listen-instead" title="Stop singing and listen to the original music video">Listen instead</button>
+        <label class="guide-level" title="Playback volume">Volume <input id="master-volume" type="range" min="0" max="1.5" step="0.05" value="1" aria-label="Playback volume"></label>
         <label class="guide-level" title="Guide melody volume">Guide volume <input id="guide-level" type="range" min="0" max="2" step="0.05" value="1.35" aria-label="Guide melody volume"></label>
         <button id="btn-mixer" title="Sound mixer">Mixer</button>
         <button id="btn-pause" title="Pause (Space)">❚❚</button>
@@ -124,6 +128,14 @@
       <label>Volume <input type="range" min="0" max="1.5" step="0.05" value="1" id="mix-volume"></label>
     </div>
   </div>
+
+  <dialog id="music-library">
+    <h2>Music videos</h2>
+    <p class="muted small">Listen to saved music videos during a break. Reserved karaoke songs will wait.</p>
+    <p id="music-status" class="muted small" role="status"></p>
+    <ol id="music-results" class="karaoke-results"></ol>
+    <button id="music-close" type="button">Close</button>
+  </dialog>
 
   <dialog id="online-karaoke">
     <form id="karaoke-search-form">
@@ -155,6 +167,9 @@
         <button type="button" id="btn-rescan" class="ghost">Look for new songs</button>
       </div>
 
+      <h3>Downloaded assets</h3>
+      <button id="btn-open-assets" type="button">Open downloaded assets</button>
+      <p id="asset-export-path" class="muted small"></p>
       <h3>Lyrics</h3>
       <label class="row">Size <input type="range" id="lyric-size" min="3" max="8" step="0.25"></label>
       <label class="row">Sung colour <input type="color" id="lyric-color"></label>

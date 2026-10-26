@@ -23,6 +23,7 @@
       "src/**/*",
       "!src/assets/packs/**/*",
       "!src/assets/soundfonts/**/*",
+      "!src/assets/downloads/**/*",
       "package.json"
     ],
     "extraResources": [

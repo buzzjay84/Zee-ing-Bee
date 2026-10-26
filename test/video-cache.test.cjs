@@ -3,18 +3,25 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createVideoCache, validVideo } = require("../src/main/video-cache");
+const { createVideoCache, validVideo, hasAudioTrack } = require("../src/main/video-cache");
 
 const song = { title: "Test Song", artist: "Test Artist" };
 const candidate = { id: "abcdefghijk", title: "Official Music Video" };
-function sampleMp4(file) {
+function sampleMp4(file, audio = true) {
   const bytes = Buffer.alloc(2048);
   bytes.writeUInt32BE(24, 0);
   bytes.write("ftyp", 4, "ascii");
-  bytes.writeUInt32BE(8, 24);
+  bytes.writeUInt32BE(56, 24);
   bytes.write("moov", 28, "ascii");
-  bytes.writeUInt32BE(2016, 32);
-  bytes.write("mdat", 36, "ascii");
+  bytes.writeUInt32BE(48, 32);
+  bytes.write("trak", 36, "ascii");
+  bytes.writeUInt32BE(40, 40);
+  bytes.write("mdia", 44, "ascii");
+  bytes.writeUInt32BE(32, 48);
+  bytes.write("hdlr", 52, "ascii");
+  bytes.write(audio ? "soun" : "vide", 64, "ascii");
+  bytes.writeUInt32BE(1968, 80);
+  bytes.write("mdat", 84, "ascii");
   fs.writeFileSync(file, bytes);
 }
 
@@ -83,4 +90,18 @@ test("karaoke downloads request audio while background downloads do not", async 
   const cache = createVideoCache(root, { withAudio: true, policy: "karaoke", ensureDownloader: async () => "test", downloadVideo: async (_tool, _id, file, options) => { requestedAudio = options.withAudio; sampleMp4(file); } });
   await cache.save(song, candidate);
   assert.equal(requestedAudio, true);
+});
+
+test("silent saved music videos are upgraded once to include original audio", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zb-music-audio-"));
+  const silent = createVideoCache(root, { ensureDownloader: async () => "test", downloadVideo: async (_tool, _id, file) => sampleMp4(file, false) });
+  const first = await silent.save(song, candidate);
+  assert.equal(hasAudioTrack(first.path), false);
+  let downloads = 0;
+  const music = createVideoCache(root, { withAudio: true, ensureDownloader: async () => "test", downloadVideo: async (_tool, _id, file) => { downloads++; sampleMp4(file, true); } });
+  const upgraded = await music.save(song, candidate);
+  assert.equal(upgraded.hasAudio, true);
+  await music.save(song, candidate);
+  assert.equal(downloads, 1);
+  assert.equal(music.list()[0].id, candidate.id);
 });

@@ -25,6 +25,7 @@ let player = midiPlayer;
 let playRequest = 0;
 let playerReady = null;
 let playbackId = 0;
+const isRecordedVideo = (song) => song?.mediaKind === "video" || song?.mediaKind === "music-video";
 
 // ---------- Library ----------
 
@@ -33,6 +34,7 @@ function applyLibrary(data) {
   state.byNumber = new Map(data.songs.map((s) => [String(s.number), s]));
   state.folders = data.folders;
   state.settings = data.settings ?? {};
+  $("asset-export-path").textContent = data.assetExportDir ?? "";
   midiPlayer.setGuide(state.settings.guideEnabled ?? true);
   midiPlayer.setMix("melody", state.settings.guideVolume ?? 1.35);
   $("guide-level").value = midiPlayer.mix.melody;
@@ -159,7 +161,7 @@ function renderQueue() {
     }),
   );
   const next = state.queue[0];
-  $("next-up").textContent = next ? `Next: ${next.number} · ${next.title}` : "Nothing reserved";
+  $("next-up").textContent = player.song?.mediaKind === "music-video" ? `Listening mode · ${state.queue.length} reserved song(s) waiting` : next ? `Next: ${next.number} · ${next.title}` : "Nothing reserved";
 }
 
 function playNext() {
@@ -170,6 +172,59 @@ function playNext() {
 }
 
 // ---------- Playing ----------
+
+async function showMusicLibrary() {
+  $("music-library").showModal();
+  $("music-results").replaceChildren();
+  $("music-status").textContent = "Loading saved music videos…";
+  try {
+    const items = await window.zb.listMusicVideos();
+    $("music-status").textContent = items.length ? "Choose a video to listen to. The next saved video will play automatically." : "No saved music videos yet. While a song plays, choose Listen instead to find and save its video.";
+    for (const item of items) {
+      const row = document.createElement("li");
+      const title = document.createElement("div");
+      title.textContent = `${item.title}${item.artist ? ` · ${item.artist}` : ""}`;
+      const button = document.createElement("button");
+      button.textContent = item.hasAudio ? "Play" : "Download audio & play";
+      button.onclick = () => prepareMusicPlayback(item.id);
+      row.append(title, button);
+      $("music-results").append(row);
+    }
+  } catch (error) { $("music-status").textContent = error.message; }
+}
+
+async function prepareMusicPlayback(id, songPath) {
+  const request = ++playRequest;
+  player.stop();
+  window.zb.hideDisplay();
+  document.body.classList.remove("playing");
+  $("music-status").textContent = "Preparing original music video audio…";
+  toast("Preparing original music video audio…", 5000);
+  const buttons = [...$("music-results").querySelectorAll("button")];
+  buttons.forEach((button) => button.disabled = true);
+  try {
+    const result = id ? await window.zb.playMusicVideo(id) : await window.zb.musicForSong(songPath);
+    if (request !== playRequest) return;
+    if ($("music-library").open) $("music-library").close();
+    await singNow(result.song);
+  } catch (error) {
+    if (request === playRequest) {
+      $("music-status").textContent = error.message;
+      toast(error.message, 5000);
+      if (!$("stage").hidden) leaveStage();
+    }
+  } finally { buttons.forEach((button) => button.disabled = false); }
+}
+
+async function playNextMusic() {
+  const current = player.song?.sourceVideoId;
+  try {
+    const items = (await window.zb.listMusicVideos()).filter((item) => item.hasAudio);
+    if (!items.length) { leaveStage(); return; }
+    const index = items.findIndex((item) => item.id === current);
+    await prepareMusicPlayback(items[(index + 1) % items.length].id);
+  } catch (error) { leaveStage(); toast(error.message, 5000); }
+}
 
 async function ensurePlayer() {
   if (!playerReady) {
@@ -196,7 +251,7 @@ async function singNow(song) {
   const request = ++playRequest;
   try {
     await window.zb.openDisplay();
-    const isVideo = song.mediaKind === "video";
+    const isVideo = isRecordedVideo(song);
     if (!isVideo) await ensurePlayer();
     const source = isVideo ? await window.zb.mediaUrl(song.path) : await window.zb.readFile(song.path);
     if (request !== playRequest) return;
@@ -204,8 +259,10 @@ async function singNow(song) {
     player = isVideo ? videoPlayer : midiPlayer;
     enterStage(song);
     await player.play(song, source);
+    player.setVolume(Number($("master-volume").value));
     if (request !== playRequest) return;
     updateStageControls();
+    renderQueue();
     const t = player.headers;
     $("tc-title").textContent = song.title || t.title || "";
     $("tc-artist").textContent = song.artist || t.artist || "";
@@ -228,7 +285,7 @@ function enterStage(song) {
   $("tc-title").textContent = song.title;
   $("tc-artist").textContent = song.artist;
   $("title-card").classList.remove("gone");
-  $("now-title").textContent = `${song.number} · ${song.title}${song.artist ? ` — ${song.artist}` : ""}`;
+  $("now-title").textContent = `${song.mediaKind === "music-video" ? "Listening" : song.number} · ${song.title}${song.artist ? ` — ${song.artist}` : ""}`;
   slots.forEach((s) => (s.index = -2));
   updateStageControls();
   wakeStage();
@@ -250,7 +307,8 @@ function stopSong() {
 }
 
 function updateStageControls() {
-  const isVideo = player.song?.mediaKind === "video";
+  const isVideo = isRecordedVideo(player.song);
+  $("btn-listen-instead").disabled = isVideo || !player.song;
   const hasGuide = !isVideo && player.melodyChannel !== -1;
   for (const id of ["key-down", "key-up", "btn-guide", "btn-mixer"]) $(id).disabled = isVideo;
   $("btn-guide").disabled = !hasGuide;
@@ -289,7 +347,7 @@ function fillSlot(slot, index) {
 }
 
 function renderLyrics(t) {
-  if (player.song?.mediaKind === "video") {
+  if (isRecordedVideo(player.song)) {
     slots.forEach((slot) => { slot.el.replaceChildren(); slot.spans = []; slot.index = -2; });
     return;
   }
@@ -447,6 +505,14 @@ async function addFolder() {
 }
 
 function wire() {
+  $("master-volume").oninput = (event) => {
+    $("mix-volume").value = event.target.value;
+    if (player.song) player.setVolume(Number(event.target.value));
+  };
+  $("btn-music-videos").onclick = showMusicLibrary;
+  $("music-close").onclick = () => $("music-library").close();
+  $("btn-listen-instead").onclick = () => prepareMusicPlayback(null, player.song?.path);
+  $("btn-open-assets").onclick = () => window.zb.openDownloadedAssets().catch((error) => toast(error.message, 5000));
   wireKaraokeSearch({ applyLibrary, singNow, reserve });
   window.zb.onVideoStatus(({ songPath, state: status }) => {
     if (player.song?.path !== songPath) return;
@@ -511,7 +577,7 @@ function wire() {
   };
   $("guide-level").onchange = () => window.zb.setSettings({ guideVolume: midiPlayer.mix.melody });
   $("btn-pause").onclick = () => (player.togglePause(), updateStageControls());
-  $("btn-skip").onclick = () => playNext();
+  $("btn-skip").onclick = () => player.song?.mediaKind === "music-video" ? playNextMusic() : playNext();
   $("btn-stop").onclick = () => stopSong();
   $("btn-mixer").onclick = () => ($("mixer").hidden = !$("mixer").hidden);
   $("mixer").addEventListener("input", (e) => {
@@ -522,7 +588,10 @@ function wire() {
       $("guide-level").value = state.settings.guideVolume;
     }
     if (e.target.id === "mix-echo") player.setEcho(Number(e.target.value));
-    if (e.target.id === "mix-volume") player.setVolume(Number(e.target.value));
+    if (e.target.id === "mix-volume") {
+      $("master-volume").value = e.target.value;
+      player.setVolume(Number(e.target.value));
+    }
   });
   $("mixer").addEventListener("change", (event) => {
     if (event.target.dataset.mix === "melody") window.zb.setSettings({ guideVolume: midiPlayer.mix.melody });
@@ -531,7 +600,7 @@ function wire() {
 
   // Keyboard: digits go to the number pad unless typing in a field.
   document.addEventListener("keydown", (e) => {
-    const typing = e.target.matches("input[type=search], input[type=text]") || $("settings").open || $("online-karaoke").open;
+    const typing = e.target.matches("input[type=search], input[type=text]") || $("settings").open || $("online-karaoke").open || $("music-library").open;
     if (typing) return;
     const onStage = Boolean(player.song);
     if (/^\d$/.test(e.key)) pressKey(e.key);
@@ -552,7 +621,7 @@ function wire() {
 }
 
 wire();
-videoPlayer.onEnded = () => playNext();
+videoPlayer.onEnded = () => player.song?.mediaKind === "music-video" ? playNextMusic() : playNext();
 videoPlayer.onError = (error) => { leaveStage(); toast(error.message, 5000); };
 setDigits("");
 applyLibrary(await window.zb.getLibrary());

@@ -122,7 +122,7 @@ window.zb.onDisplayFrame((data) => {
   }
   $("stage-number").hidden = !data.text["stage-number"];
   $("title-card").classList.toggle("gone", data.titleGone);
-  document.querySelector(".lyrics").hidden = data.mediaKind === "video";
+  document.querySelector(".lyrics").hidden = data.mediaKind === "video" || data.mediaKind === "music-video";
   $("display-countin").textContent = data.countIn;
   $("display-countin").hidden = !data.countIn;
   const inIntro = Number.isFinite(data.introUntil) && data.time < data.introUntil;

@@ -1,6 +1,10 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("zb", {
+  openDownloadedAssets: () => ipcRenderer.invoke("assets:open"),
+  listMusicVideos: () => ipcRenderer.invoke("music:list"),
+  playMusicVideo: (id) => ipcRenderer.invoke("music:play", id),
+  musicForSong: (songPath) => ipcRenderer.invoke("music:forSong", songPath),
   searchKaraoke: (title, artist) => ipcRenderer.invoke("karaoke:search", title, artist),
   importKaraoke: (token, videoId) => ipcRenderer.invoke("karaoke:import", token, videoId),
   mediaUrl: (songPath) => ipcRenderer.invoke("media:url", songPath),

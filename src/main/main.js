@@ -10,6 +10,7 @@ const { createOnlineSearch } = require("./online-videos");
 const { createVideoCache, cancelVideoDownloads } = require("./video-cache");
 const { validateQuery, searchKaraoke } = require("./karaoke");
 const { mediaResponse } = require("./media-response");
+const { createAssetExporter } = require("./asset-exports");
 
 const APP_NAME = "Zee-ing Bee";
 // Reuse existing libraries and downloaded videos after the display-name change.
@@ -28,6 +29,7 @@ let musicVideos = [];
 let searchOnlineVideos;
 let savedVideos;
 let karaokeVideos;
+let assetExporter;
 const karaokeSearches = new Map();
 const karaokeImports = new Map();
 const videoFiles = new Map();
@@ -115,8 +117,10 @@ function soundBanks() {
 async function loadLibrary() {
   lib = library.load(libraryFile());
   searchOnlineVideos = createOnlineSearch(path.join(app.getPath("userData"), "music-video-cache.json"));
-  savedVideos = createVideoCache(path.join(app.getPath("userData"), "music-videos"));
-  karaokeVideos = createVideoCache(path.join(app.getPath("userData"), "karaoke-videos"), { withAudio: true, policy: "karaoke-v1" });
+  const exportsRoot = app.isPackaged ? path.join(app.getPath("documents"), "Zee-ing Bee", "assets", "downloads") : path.join(appRoot, "src", "assets", "downloads");
+  assetExporter = createAssetExporter(exportsRoot);
+  savedVideos = createVideoCache(path.join(app.getPath("userData"), "music-videos"), { withAudio: true, onSaved: (entry, song) => assetExporter.exportFile(entry, song, "music-videos") });
+  karaokeVideos = createVideoCache(path.join(app.getPath("userData"), "karaoke-videos"), { withAudio: true, policy: "karaoke-v1", onSaved: (entry, song) => assetExporter.exportFile(entry, song, "karaoke-videos") });
   // The bundled folder can move between installs, so match it by flag, not path.
   lib.folders = lib.folders.filter((f) => !f.builtIn);
   const packsDir = app.isPackaged ? path.join(resourcesDir, "packs") : path.join(appRoot, "src", "assets", "packs");
@@ -131,6 +135,7 @@ function publicState() {
     songs: lib.songs,
     folders: lib.folders,
     settings: lib.settings,
+    assetExportDir: assetExporter.root,
     soundBanks: soundBanks().map(({ name, path: p, builtIn }) => ({ name, path: p, builtIn: Boolean(builtIn) })),
   };
 }
@@ -147,6 +152,37 @@ function allowedToRead(file) {
 }
 
 function registerIpc() {
+  const musicInfo = (entry) => ({ id: entry.id, title: entry.songTitle || entry.title, artist: entry.artist || "", hasAudio: entry.hasAudio });
+  const musicSong = (entry) => ({ number: "MV", title: entry.songTitle || entry.title, artist: entry.artist || "", path: entry.path, mediaKind: "music-video", sourceVideoId: entry.id });
+  async function prepareMusic(entry, song) {
+    const saved = await savedVideos.save(song, { id: entry.id, title: entry.title });
+    return { song: musicSong(saved), url: videoUrl(saved.path) };
+  }
+  ipcMain.handle("music:list", (event) => event.sender === win.webContents ? savedVideos.list().map(musicInfo) : []);
+  ipcMain.handle("music:play", async (event, id) => {
+    if (event.sender !== win.webContents) throw new Error("Use the dashboard for music playback.");
+    const entry = savedVideos.list().find((item) => item.id === id);
+    if (!entry) throw new Error("This music video has not been saved yet.");
+    return prepareMusic(entry, { title: entry.songTitle || entry.title, artist: entry.artist || "", cacheKey: entry.key });
+  });
+  ipcMain.handle("music:forSong", async (event, songPath) => {
+    if (event.sender !== win.webContents) throw new Error("Use the dashboard for music playback.");
+    const song = lib.songs.find((item) => item.path === songPath && item.mediaKind !== "video");
+    if (!song) throw new Error("Select a MIDI song first.");
+    let entry = savedVideos.get(song);
+    if (!entry) {
+      const candidates = await searchOnlineVideos(song);
+      if (!candidates.length) throw new Error("No matching music video or live performance found.");
+      entry = { ...candidates[0] };
+    }
+    return prepareMusic(entry, song);
+  });
+  ipcMain.handle("assets:open", async (event) => {
+    if (event.sender !== win.webContents) return;
+    await fs.promises.mkdir(assetExporter.root, { recursive: true });
+    const error = await shell.openPath(assetExporter.root);
+    if (error) throw new Error(error);
+  });
   ipcMain.handle("karaoke:search", async (event, title, artist) => {
     if (event.sender !== win.webContents) throw new Error("Use the dashboard to search.");
     const query = validateQuery(title, artist);
@@ -181,8 +217,9 @@ function registerIpc() {
   });
   ipcMain.handle("media:url", (_event, songPath) => {
     const song = lib.songs.find((s) => s.path === songPath && s.mediaKind === "video");
-    if (!song) throw new Error("That karaoke video is not in the library.");
-    return videoUrl(song.path);
+    const music = song ? null : savedVideos.list().find((entry) => entry.path === songPath);
+    if (!song && !music) throw new Error("That video is not in the library.");
+    return videoUrl(song?.path ?? music.path);
   });
   ipcMain.handle("video:save", async (event, songPath, videoId) => {
     if (event.sender !== displayWindow?.webContents) return null;
@@ -215,7 +252,10 @@ function registerIpc() {
   });
   ipcMain.handle("video:resolve", (_event, songPath) => {
     const song = lib.songs.find((s) => s.path === songPath);
-    if (!song) return null;
+    if (!song) {
+      const music = savedVideos.list().find((entry) => entry.path === songPath);
+      return music ? { matched: true, karaoke: true, url: videoUrl(music.path) } : null;
+    }
     if (song.mediaKind === "video") return { matched: true, karaoke: true, url: videoUrl(song.path) };
     const cached = savedVideos.get(song);
     const match = cached ?? matchVideo(musicVideos, song);
@@ -416,6 +456,16 @@ app.whenReady().then(async () => {
   await loadLibrary();
   registerIpc();
   createWindow();
+  if (!process.env.ZB_SMOKE) {
+    (async () => {
+      for (const [cache, kind] of [[savedVideos, "music-videos"], [karaokeVideos, "karaoke-videos"]]) {
+        for (const entry of cache.list()) {
+          await assetExporter.exportFile(entry, { title: entry.songTitle || entry.title, artist: entry.artist || "" }, kind)
+            .catch((error) => console.warn("Asset export failed:", error.message));
+        }
+      }
+    })();
+  }
   if (!loading.isDestroyed()) loading.destroy();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
