@@ -1,0 +1,8 @@
+{
+  "name": "zee-ing-bee-packs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  }
+}

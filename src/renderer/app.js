@@ -525,6 +525,14 @@ function wire() {
     $("update-banner").hidden = false;
   });
   $("btn-update-later").onclick = () => { $("update-banner").hidden = true; };
+  // App-only installs keep downloading song packs after opening; new songs appear as each pack lands.
+  const showPackStatus = ({ state: status, percent }) => {
+    $("packs-banner").hidden = status !== "downloading" && status !== "retrying";
+    $("packs-banner").textContent = status === "retrying" ? "Song download paused · Retrying…" : `Downloading songs… ${percent}%`;
+  };
+  window.zb.onSongPackStatus?.(showPackStatus);
+  window.zb.getSongPackStatus?.().then(showPackStatus).catch(() => {});
+  window.zb.onLibraryChanged?.(applyLibrary);
   $("btn-update-now").onclick = () => window.zb.installUpdate().catch((error) => toast(error.message, 5000));
   // Keep playback controls on the dashboard; only the lyrics go to the display.
   document.body.append(document.querySelector(".stage-bar"), $("mixer"));

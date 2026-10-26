@@ -12,6 +12,7 @@ const { validateQuery, searchKaraoke } = require("./karaoke");
 const { mediaResponse } = require("./media-response");
 const { createAssetExporter } = require("./asset-exports");
 const { createUpdater } = require("./updater");
+const { createPackDownloader, UNLOCK_FRACTION } = require("./pack-downloader");
 
 const APP_NAME = "Zee-ing Bee";
 // Reuse existing libraries and downloaded videos after the display-name change.
@@ -22,6 +23,9 @@ const appRoot = path.join(__dirname, "..", "..");
 const resourcesDir = app.isPackaged ? path.join(process.resourcesPath, "resources") : path.join(appRoot, "resources");
 const appIcon = path.join(resourcesDir, "icons", "zee-ing-bee.png");
 const libraryFile = () => path.join(app.getPath("userData"), "library.json");
+const bundledPacksDir = () => app.isPackaged ? path.join(resourcesDir, "packs") : path.join(appRoot, "src", "assets", "packs");
+const downloadedPacksDir = () => path.join(app.getPath("userData"), "song-packs");
+const PACK_RETRY_MS = 60000;
 
 let lib;
 let win;
@@ -32,6 +36,8 @@ let savedVideos;
 let karaokeVideos;
 let assetExporter;
 let updater;
+let libraryReady;
+let packStatus = { state: "idle", percent: 0 };
 const karaokeSearches = new Map();
 const karaokeImports = new Map();
 const videoFiles = new Map();
@@ -124,12 +130,66 @@ async function loadLibrary() {
   savedVideos = createVideoCache(path.join(app.getPath("userData"), "music-videos"), { withAudio: true, onSaved: (entry, song) => assetExporter.exportFile(entry, song, "music-videos") });
   karaokeVideos = createVideoCache(path.join(app.getPath("userData"), "karaoke-videos"), { withAudio: true, policy: "karaoke-v1", onSaved: (entry, song) => assetExporter.exportFile(entry, song, "karaoke-videos") });
   // The bundled folder can move between installs, so match it by flag, not path.
-  lib.folders = lib.folders.filter((f) => !f.builtIn);
-  const packsDir = app.isPackaged ? path.join(resourcesDir, "packs") : path.join(appRoot, "src", "assets", "packs");
-  lib.folders.push(...await prepareBundledSongs(packsDir, path.join(app.getPath("userData"), "bundled-songs")));
+  lib.folders = [...lib.folders.filter((f) => !f.builtIn), ...await songPackFolders()];
   library.rescan(lib);
   musicVideos = indexVideos([path.join(appRoot, "src", "assets", "music-videos"), ...lib.folders.filter((f) => !f.builtIn).map((f) => f.path)]);
   library.save(libraryFile(), lib);
+}
+
+/** Songs from bundled packs (a full install) and from packs downloaded in the background (app only). */
+async function songPackFolders() {
+  const extracted = path.join(app.getPath("userData"), "bundled-songs");
+  return [...await prepareBundledSongs(bundledPacksDir(), extracted), ...await prepareBundledSongs(downloadedPacksDir(), extracted)];
+}
+
+/** Adds newly downloaded packs to the open library, keeping the person's own folders. */
+async function addDownloadedSongs() {
+  lib.folders = [...lib.folders.filter((f) => !f.builtIn), ...await songPackFolders()];
+  library.rescan(lib);
+  library.save(libraryFile(), lib);
+  if (win && !win.isDestroyed()) win.webContents.send("library:changed", publicState());
+}
+
+/**
+ * App-only installs fetch their song packs in the background. Resolves once enough has
+ * arrived to start singing, or when the server can't be reached for now, and keeps
+ * downloading (and retrying) after that.
+ */
+function downloadSongPacks(onProgress) {
+  const downloader = createPackDownloader(downloadedPacksDir());
+  if (process.env.ZB_SMOKE || !downloader.configured || !downloader.needed(bundledPacksDir())) return Promise.resolve();
+  return new Promise((resolve) => {
+    let lastDone;
+    let adding = Promise.resolve();
+    const addSongs = () => {
+      adding = adding.then(() => libraryReady).then(addDownloadedSongs).catch((error) => console.warn("Adding downloaded songs failed:", error.message));
+    };
+    const setStatus = (status) => {
+      packStatus = status;
+      onProgress(status);
+      if (win && !win.isDestroyed()) win.webContents.send("packs:status", status);
+    };
+    (async () => {
+      for (;;) {
+        try {
+          await downloader.sync((p) => {
+            setStatus({ state: "downloading", percent: p.total ? Math.floor((p.received / p.total) * 100) : 100 });
+            if (p.unlocked) resolve();
+            if (lastDone !== undefined && p.done !== lastDone) addSongs();
+            lastDone = p.done;
+          });
+          setStatus({ state: "done", percent: 100 });
+          addSongs();
+          return;
+        } catch (error) {
+          console.warn("Song pack download failed:", error.message);
+          setStatus({ state: "retrying", percent: packStatus.percent });
+          resolve();
+          await new Promise((r) => setTimeout(r, PACK_RETRY_MS));
+        }
+      }
+    })();
+  });
 }
 
 function publicState() {
@@ -279,6 +339,7 @@ function registerIpc() {
   });
   ipcMain.handle("update:install", (event) => event.sender === win?.webContents ? updater?.install() ?? false : false);
   ipcMain.handle("library:get", () => publicState());
+  ipcMain.handle("packs:status", () => packStatus);
 
   ipcMain.handle("library:addFolder", async () => {
     const res = await dialog.showOpenDialog(win, { title: "Add a song folder", properties: ["openDirectory"] });
@@ -455,7 +516,16 @@ app.whenReady().then(async () => {
     webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
   });
   await loading.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent('<body style="background:#120d02;color:#ffe8a3;font:18px system-ui;padding:32px"><h2>Loading your songs...</h2><p>The first launch extracts all song packs and may take a few minutes. Later launches are faster.</p></body>')}`);
-  await loadLibrary();
+  const showPackProgress = ({ state, percent }) => {
+    if (loading.isDestroyed()) return;
+    const [title, detail] = state === "retrying"
+      ? ["Can't reach the song server", "Opening the app now. Songs will keep trying to download in the background."]
+      : [`Downloading songs... ${percent}%`, `You can start singing at ${Math.round(UNLOCK_FRACTION * 100)}%. The rest keeps downloading while you sing.`];
+    loading.webContents.executeJavaScript(`document.querySelector("h2").textContent = ${JSON.stringify(title)}; document.querySelector("p").textContent = ${JSON.stringify(detail)};`).catch(() => {});
+  };
+  await downloadSongPacks(showPackProgress);
+  libraryReady = loadLibrary();
+  await libraryReady;
   registerIpc();
   createWindow();
   if (!process.env.ZB_SMOKE) {

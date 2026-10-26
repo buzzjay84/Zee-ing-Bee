@@ -29,7 +29,7 @@ test("sync downloads every pack in order, verifies checksums and reports progres
   assert.equal(fs.readFileSync(path.join(root, "b.zip"), "utf8"), contents["b.zip"]);
   assert.equal(progress.at(-1).done, 1000);
   assert.equal(progress.at(-1).total, 1000);
-  // "a.zip" alone is under the 10% threshold (100/1000); only after "b.zip" is it unlocked.
+  // Nothing is downloaded at the first report, so it is locked; once everything is in, it is unlocked.
   assert.equal(progress[0].unlocked, false);
   assert.equal(progress.at(-1).unlocked, true);
   assert.ok(UNLOCK_FRACTION < 1);
@@ -59,6 +59,23 @@ test("a pack that fails checksum verification is rejected and leaves no partial 
   await assert.rejects(downloader.sync(), /verification/);
   assert.equal(fs.existsSync(path.join(root, "a.zip")), false);
   assert.equal(fs.existsSync(path.join(root, "a.zip.part")), false);
+});
+
+test("the built-in download streams to disk and reports bytes while the pack is still arriving", async () => {
+  const root = tmpRoot();
+  const text = "z".repeat(4096);
+  const manifest = [{ name: "a.zip", size: text.length, sha256: sha256(text) }];
+  const progress = [];
+  const downloader = createPackDownloader(root, {
+    baseUrl: "https://packs.test",
+    fetch: async (url) => (url.endsWith("manifest.json")
+      ? { ok: true, json: async () => manifest }
+      : new Response(text)),
+  });
+  await downloader.sync((info) => progress.push(info));
+  assert.equal(fs.readFileSync(path.join(root, "a.zip"), "utf8"), text);
+  assert.ok(progress.some((p) => p.done === 0 && p.received === text.length), "bytes are reported before the pack completes");
+  assert.equal(progress.at(-1).done, text.length);
 });
 
 test("an invalid manifest is rejected before any download is attempted", async () => {

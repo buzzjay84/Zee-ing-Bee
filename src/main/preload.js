@@ -30,6 +30,17 @@ contextBridge.exposeInMainWorld("zb", {
     return () => ipcRenderer.removeListener("display:frame", listener);
   },
   getLibrary: () => ipcRenderer.invoke("library:get"),
+  onLibraryChanged: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on("library:changed", listener);
+    return () => ipcRenderer.removeListener("library:changed", listener);
+  },
+  getSongPackStatus: () => ipcRenderer.invoke("packs:status"),
+  onSongPackStatus: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on("packs:status", listener);
+    return () => ipcRenderer.removeListener("packs:status", listener);
+  },
   addFolder: () => ipcRenderer.invoke("library:addFolder"),
   removeFolder: (folderPath) => ipcRenderer.invoke("library:removeFolder", folderPath),
   rescan: () => ipcRenderer.invoke("library:rescan"),

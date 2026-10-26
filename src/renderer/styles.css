@@ -70,6 +70,11 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
   padding: 8px 10px 8px 18px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 .update-banner .actions { gap: 8px; }
+.packs-banner {
+  position: fixed; bottom: 14px; right: 14px; z-index: 20;
+  background: var(--panel-2); border: 1px solid var(--honey); border-radius: 999px;
+  padding: 6px 14px; font-size: 13px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
 @keyframes bee-hover { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-4px) rotate(1deg); } }
 @keyframes music-note-flow {
   0% { transform: translate(0, 8px) rotate(-12deg); opacity: 0; }

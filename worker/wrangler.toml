@@ -1,0 +1,12 @@
+name = "zee-ing-bee-packs"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# The private repo and release tag holding manifest.json and the song pack zips.
+PACKS_REPO = "OWNER/zee-ing-bee-songs"
+PACKS_TAG = "packs"
+
+# GITHUB_TOKEN is a secret, never stored here. Set it with:
+#   npx wrangler secret put GITHUB_TOKEN
+# Use a fine-grained token with read-only "Contents" access to the songs repo only.
