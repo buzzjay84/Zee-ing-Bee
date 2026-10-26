@@ -60,7 +60,16 @@ jobs:
       - name: Prepare installer configuration
         run: node scripts/prepare-ci-build.cjs
       - name: Build installer
-        run: npx electron-builder --config dist/electron-builder-ci.json --${{ matrix.target }} --${{ matrix.arch }} --publish never
+        # Mac dmg and zip are built as separate invocations: building them together races
+        # dmgbuild's disk-image eject against the zip step still reading the same staged
+        # app, which intermittently fails with "Resource busy" on the GitHub runners.
+        run: |
+          if [ "${{ matrix.target }}" = "mac" ]; then
+            npx electron-builder --config dist/electron-builder-ci.json --mac dmg --${{ matrix.arch }} --publish never
+            npx electron-builder --config dist/electron-builder-ci.json --mac zip --${{ matrix.arch }} --publish never
+          else
+            npx electron-builder --config dist/electron-builder-ci.json --${{ matrix.target }} --${{ matrix.arch }} --publish never
+          fi
       - name: Generate checksums
         run: node scripts/installer-checksums.cjs ${{ matrix.target }} ${{ matrix.arch }}
       - name: Save installers
