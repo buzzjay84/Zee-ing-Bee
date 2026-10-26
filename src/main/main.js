@@ -7,10 +7,11 @@ const { prepareBundledSongs } = require("./bundled-songs");
 const { buildSongbookHtml } = require("./songbook");
 const { indexVideos, matchVideo } = require("./videos");
 const { createOnlineSearch } = require("./online-videos");
-const { createVideoCache, cancelVideoDownloads } = require("./video-cache");
+const { atTargetQuality, createVideoCache, cancelVideoDownloads } = require("./video-cache");
 const { validateQuery, searchKaraoke } = require("./karaoke");
 const { mediaResponse } = require("./media-response");
 const { createAssetExporter } = require("./asset-exports");
+const { createUpdater } = require("./updater");
 
 const APP_NAME = "Zee-ing Bee";
 // Reuse existing libraries and downloaded videos after the display-name change.
@@ -30,6 +31,7 @@ let searchOnlineVideos;
 let savedVideos;
 let karaokeVideos;
 let assetExporter;
+let updater;
 const karaokeSearches = new Map();
 const karaokeImports = new Map();
 const videoFiles = new Map();
@@ -239,7 +241,7 @@ function registerIpc() {
     const song = lib.songs.find((s) => s.path === songPath);
     if (!song) return [];
     const saved = savedVideos.get(song);
-    const cached = saved?.hasAudio ? saved : null;
+    const cached = saved?.hasAudio && atTargetQuality(saved) ? saved : null;
     const notify = (state) => { if (!win.isDestroyed()) win.webContents.send("video:status", { songPath, state }); };
     notify(cached ? "saved-searching" : "searching");
     const items = await searchOnlineVideos(song, { refresh: true });
@@ -258,7 +260,9 @@ function registerIpc() {
     const dir = path.join(appRoot, "src", "assets", "videos");
     const backgrounds = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /\.(mp4|webm|m4v)$/i.test(f)) : [];
     const random = backgrounds.length ? path.join(dir, backgrounds[Math.floor(Math.random() * backgrounds.length)]) : null;
-    const complete = cached?.hasAudio;
+    // Low-resolution saves still play offline, but stream online so they get re-saved in HD
+    // (unless the source itself is capped below the target — then this is as good as it gets).
+    const complete = cached?.hasAudio && atTargetQuality(cached);
     if (complete && win && !win.isDestroyed()) win.webContents.send("video:status", { songPath, state: "saved" });
     return { matched: Boolean(match), cached: Boolean(complete), videoId: complete ? cached.id : undefined, url: match ? videoUrl(match.path) : random ? videoUrl(random) : null, fallback: random ? videoUrl(random) : null, backgrounds: backgrounds.map((file) => videoUrl(path.join(dir, file))) };
   });
@@ -273,6 +277,7 @@ function registerIpc() {
   ipcMain.on("display:hide", (event) => {
     if (event.sender === win.webContents) displayWindow?.hide();
   });
+  ipcMain.handle("update:install", (event) => event.sender === win?.webContents ? updater?.install() ?? false : false);
   ipcMain.handle("library:get", () => publicState());
 
   ipcMain.handle("library:addFolder", async () => {
@@ -454,6 +459,13 @@ app.whenReady().then(async () => {
   registerIpc();
   createWindow();
   if (!process.env.ZB_SMOKE) {
+    const { autoUpdater } = require("electron-updater");
+    updater = createUpdater({
+      app,
+      autoUpdater,
+      notify: (info) => { if (win && !win.isDestroyed()) win.webContents.send("update:ready", info); },
+    });
+    updater.start();
     (async () => {
       for (const [cache, kind] of [[savedVideos, "music-videos"], [karaokeVideos, "karaoke-videos"]]) {
         for (const entry of cache.list()) {
@@ -476,4 +488,4 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
-app.on("before-quit", cancelVideoDownloads);
+app.on("before-quit", () => { cancelVideoDownloads(); updater?.stop(); });

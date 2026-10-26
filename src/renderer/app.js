@@ -520,6 +520,12 @@ function wire() {
     updateStageControls();
     $("video-save-status").textContent = ({ searching: "Finding a music video or live performance…", "saved-searching": "Playing saved video · Checking for a newer match…", loading: "Loading music video or live performance…", background: "No matching video · Using background", queued: "Video queued for offline saving", downloading: "Saving music video for offline playback…", saved: "Video saved · Available offline", failed: "Video could not be saved · Streaming only" })[status] ?? "";
   });
+  window.zb.onUpdateReady?.(({ version }) => {
+    $("update-banner-text").textContent = `Update ${version} is ready.`;
+    $("update-banner").hidden = false;
+  });
+  $("btn-update-later").onclick = () => { $("update-banner").hidden = true; };
+  $("btn-update-now").onclick = () => window.zb.installUpdate().catch((error) => toast(error.message, 5000));
   // Keep playback controls on the dashboard; only the lyrics go to the display.
   document.body.append(document.querySelector(".stage-bar"), $("mixer"));
   $("btn-display").onclick = () => window.zb.openDisplay();

@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createVideoCache, validVideo, hasAudioTrack } = require("../src/main/video-cache");
+const { VIDEO_QUALITY, createVideoCache, validVideo, hasAudioTrack } = require("../src/main/video-cache");
 
 const song = { title: "Test Song", artist: "Test Artist" };
 const candidate = { id: "abcdefghijk", title: "Official Music Video" };
@@ -116,5 +116,52 @@ test("an in-flight download for a song can be awaited without starting another",
   assert.equal(waited.id, (await saving).id);
   assert.equal(waited.hasAudio, true);
   assert.equal(cache.pendingFor(song), null);
+  assert.equal(downloads, 1);
+});
+
+test("videos saved before the HD target are re-downloaded once", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zb-video-quality-"));
+  sampleMp4(path.join(root, `${candidate.id}.mp4`));
+  fs.writeFileSync(path.join(root, "index.json"), JSON.stringify({ [require("node:crypto").createHash("sha256").update("test song|test artist").digest("hex")]: { id: candidate.id, title: candidate.title } }));
+  let downloads = 0;
+  const cache = createVideoCache(root, { withAudio: true, ensureDownloader: async () => "test", downloadVideo: async (_tool, _id, file) => { downloads++; sampleMp4(file); } });
+  assert.equal(cache.get(song).id, candidate.id);
+  assert.equal((await cache.save(song, candidate)).quality, VIDEO_QUALITY);
+  await createVideoCache(root, { withAudio: true, ensureDownloader: async () => { throw new Error("Offline"); } }).save(song, candidate);
+  assert.equal(downloads, 1);
+});
+
+test("stale download fragments from an interrupted attempt do not break the next download", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zb-video-fragments-"));
+  fs.mkdirSync(root, { recursive: true });
+  // Simulate leftovers from a previous attempt that was killed mid-merge.
+  fs.writeFileSync(path.join(root, `${candidate.id}.download.f137.mp4`), "stale-video-fragment");
+  fs.writeFileSync(path.join(root, `${candidate.id}.download.f140.m4a`), "stale-audio-fragment");
+  fs.writeFileSync(path.join(root, `${candidate.id}.download.f137.mp4.part`), "stale-partial");
+  const cache = createVideoCache(root, {
+    ensureDownloader: async () => "test-tool",
+    downloadVideo: async (_tool, _id, file) => {
+      assert.equal(fs.existsSync(path.join(root, `${candidate.id}.download.f137.mp4`)), false);
+      sampleMp4(file);
+    },
+  });
+  const saved = await cache.save(song, candidate);
+  assert.equal(saved.quality, VIDEO_QUALITY);
+});
+
+test("a video capped below the HD target is recorded honestly and not retried forever", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zb-video-capped-"));
+  let downloads = 0;
+  const cache = createVideoCache(root, {
+    withAudio: true,
+    ensureDownloader: async () => "test-tool",
+    downloadVideo: async (_tool, _id, file) => { downloads++; sampleMp4(file); },
+    probeHeight: () => 480, // source only ever offered 480p
+  });
+  const saved = await cache.save(song, candidate);
+  assert.equal(saved.quality, 480);
+  assert.equal(saved.qualityCapped, true);
+  // Replaying the song should not re-trigger a download forever just because 480 !== 1080.
+  await cache.save(song, candidate);
   assert.equal(downloads, 1);
 });

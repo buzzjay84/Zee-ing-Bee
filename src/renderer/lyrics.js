@@ -1,9 +1,14 @@
 // Turns the words inside a karaoke MIDI into timed lines of syllables.
 //
-// Two formats exist in the wild:
-//  - Soft Karaoke (.kar): text events (type 1). "@" lines are headers,
-//    "/" starts a new line and "\" starts a new verse.
+// Formats seen in the wild:
+//  - Soft Karaoke (.kar): text events (type 1), normally announced by an
+//    "@KMIDI KARAOKE FILE" header. "/" starts a new line, "\" a new verse.
 //  - Standard lyric events (type 5): a "\r" or "\n" ends a line.
+//  - Some files use the "/" and "\" line/verse markers from Soft Karaoke, but
+//    put them in type-5 lyric events and skip the header entirely, so the
+//    MIDI parser's isKaraokeFile flag never gets set. Detected from the
+//    content itself: a real lyric line essentially never starts with "/" or
+//    "\" on its own, so seeing that is a reliable sign of the convention.
 
 const TEXT = 0x01;
 const LYRIC = 0x05;
@@ -47,10 +52,13 @@ export function karaokeHeaders(midi) {
  */
 export function extractLyrics(midi) {
   let events = collect(midi, LYRIC);
-  let soft = false;
   const textEvents = collect(midi, TEXT).filter((e) => !e.text.startsWith("@"));
+  const looksSoft = (list) => list.some((e) => e.text.startsWith("/") || e.text.startsWith("\\"));
+  let soft = false;
   if (events.length === 0 || (midi.isKaraokeFile && textEvents.length > events.length)) {
     events = textEvents;
+    soft = true;
+  } else if (looksSoft(events)) {
     soft = true;
   }
 

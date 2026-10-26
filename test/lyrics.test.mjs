@@ -55,3 +55,23 @@ test("a syllable fills over the gap to the next one", () => {
   assert.equal(syllableFill(line, 0, 2), 1);
   assert.equal(syllableFill(line, 1, 2), 0.5, "the last syllable fills over at most a second");
 });
+
+test("slash-delimited lines in LYRIC events are split even without the karaoke header", () => {
+  // Some .kar-style files use the Soft Karaoke "/" and "\" line/verse markers but put
+  // them in type-5 LYRIC events and skip the "@KMIDI KARAOKE FILE" header, so the MIDI
+  // parser's isKaraokeFile flag is never set. The content itself should still be detected.
+  const mockEvent = (text, ticks) => ({ statusByte: 0x05, ticks, data: new TextEncoder().encode(text) });
+  const midi = {
+    isKaraokeFile: false,
+    tracks: [{ events: [
+      mockEvent("/Hello there", 0),
+      mockEvent(" friend", 10),
+      mockEvent("/Tell laura, tell laura", 20),
+      mockEvent(`${String.fromCharCode(92)}Hey laura`, 30),
+    ] }],
+    midiTicksToSeconds: (ticks) => ticks / 10,
+  };
+  const lines = extractLyrics(midi);
+  assert.deepEqual(lines.map(lineText), ["Hello there friend", "Tell laura, tell laura", "Hey laura"]);
+  assert.ok(lines.every((l) => !lineText(l).includes("/") && !lineText(l).includes("\\")));
+});

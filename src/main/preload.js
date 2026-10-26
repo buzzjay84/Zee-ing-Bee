@@ -37,4 +37,10 @@ contextBridge.exposeInMainWorld("zb", {
   addSoundBank: () => ipcRenderer.invoke("soundbank:add"),
   readFile: (file) => ipcRenderer.invoke("file:read", file),
   makeSongbook: () => ipcRenderer.invoke("songbook:pdf"),
+  installUpdate: () => ipcRenderer.invoke("update:install"),
+  onUpdateReady: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on("update:ready", listener);
+    return () => ipcRenderer.removeListener("update:ready", listener);
+  },
 });

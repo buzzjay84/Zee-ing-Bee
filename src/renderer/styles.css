@@ -63,6 +63,13 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
 .brand-notes span:nth-child(5) { animation-delay: -5.3s; top: 65%; font-size: 24px; }
 .brand-notes span:nth-child(6) { animation-delay: -6.6s; top: 8%; font-size: 28px; }
 .topbar .actions { position: relative; z-index: 2; background: rgba(18, 13, 2, 0.88); border-radius: 12px; }
+.update-banner {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 20;
+  display: flex; align-items: center; gap: 14px;
+  background: var(--panel-2); border: 1px solid var(--honey); border-radius: 999px;
+  padding: 8px 10px 8px 18px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.update-banner .actions { gap: 8px; }
 @keyframes bee-hover { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-4px) rotate(1deg); } }
 @keyframes music-note-flow {
   0% { transform: translate(0, 8px) rotate(-12deg); opacity: 0; }

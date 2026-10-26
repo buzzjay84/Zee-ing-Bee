@@ -1,10 +1,12 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { spawn } = require("node:child_process");
+const { spawn, execFileSync } = require("node:child_process");
 const { SELECTION_POLICY } = require("./online-videos");
 
 const TOOL_RELEASE = "2026.10.21";
+// Saved videos older than this target are re-downloaded once at full quality.
+const VIDEO_QUALITY = 1080;
 const activeDownloads = new Set();
 function cancelVideoDownloads() {
   for (const child of activeDownloads) child.kill();
@@ -31,22 +33,63 @@ async function ensureDownloader(toolsDir) {
   return target;
 }
 
-function downloadVideo(tool, id, output, { nodePath = process.execPath, withAudio = false } = {}) {
+// YouTube only serves single-file MP4s at 360p, so HD needs ffmpeg to merge the streams.
+function bundledFfmpeg() {
+  try {
+    const file = require("ffmpeg-static")?.replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+    return file && fs.existsSync(file) ? file : null;
+  } catch { return null; }
+}
+
+function formatArgs(withAudio, ffmpeg) {
+  if (!ffmpeg) return ["-f", withAudio ? "best[ext=mp4][acodec!=none][vcodec!=none]" : "bestvideo[ext=mp4][vcodec^=avc1]/best[ext=mp4]"];
+  return [
+    "--ffmpeg-location", ffmpeg, "--merge-output-format", "mp4",
+    "-S", `res:${VIDEO_QUALITY},vcodec:h264,acodec:aac`,
+    "-f", withAudio ? "bv*+ba/b" : "bv*/b",
+  ];
+}
+
+// Not every source video is actually available at the target resolution (e.g. an old or
+// low-effort upload may top out at 480p); probe what we really got instead of assuming.
+function probeHeight(file, ffmpeg) {
+  if (!ffmpeg) return null;
+  try {
+    execFileSync(ffmpeg, ["-hide_banner", "-i", file], { stdio: ["ignore", "ignore", "pipe"], timeout: 15000 });
+  } catch (error) {
+    const heights = [...String(error.stderr ?? "").matchAll(/Video:.*?\d+x(\d+)/g)].map((m) => Number(m[1]));
+    if (heights.length) return Math.max(...heights);
+  }
+  return null;
+}
+
+// HD files can be hundreds of MB; on a slow link the download is still fine as long as
+// it keeps making progress. So this times out on inactivity, not on total elapsed time,
+// with a generous absolute cap only as a backstop against a wedged process.
+const STALL_TIMEOUT = 90000;
+const MAX_DOWNLOAD_TIME = 3600000;
+function downloadVideo(tool, id, output, { nodePath = process.execPath, withAudio = false, ffmpeg = bundledFfmpeg() } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(tool, [
-      "--ignore-config", "--no-playlist", "--no-progress", "--no-warnings",
+      "--ignore-config", "--no-playlist", "--newline", "--no-warnings",
       "--js-runtimes", `node:${nodePath}`, "--retries", "2", "--socket-timeout", "20",
-      "--max-filesize", "250M", "--no-mtime",
-      "-f", withAudio ? "best[ext=mp4][height<=720][acodec!=none][vcodec!=none]" : "bestvideo[ext=mp4][vcodec^=avc1][height<=720]/best[ext=mp4][height<=720]",
+      "--max-filesize", "600M", "--no-mtime",
+      ...formatArgs(withAudio, ffmpeg),
       "-o", output, `https://www.youtube.com/watch?v=${id}`,
-    ], { windowsHide: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "ignore", "pipe"] });
+    ], { windowsHide: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "pipe", "pipe"] });
     activeDownloads.add(child);
     child.once("close", () => activeDownloads.delete(child));
     let errorText = "";
     child.stderr.on("data", (chunk) => { errorText = (errorText + chunk.toString()).slice(-3000); });
-    const timer = setTimeout(() => { child.kill(); reject(new Error("Video download timed out")); }, 300000);
-    child.on("error", (error) => { clearTimeout(timer); reject(error); });
-    child.on("close", (code) => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error(errorText.trim() || `Video download failed (${code})`)); });
+    let stallTimer;
+    const onStall = () => { child.kill(); reject(new Error("Video download stalled")); };
+    const resetStall = () => { clearTimeout(stallTimer); stallTimer = setTimeout(onStall, STALL_TIMEOUT); };
+    resetStall();
+    child.stdout.on("data", resetStall);
+    const hardCap = setTimeout(onStall, MAX_DOWNLOAD_TIME);
+    const finish = () => { clearTimeout(stallTimer); clearTimeout(hardCap); };
+    child.on("error", (error) => { finish(); reject(error); });
+    child.on("close", (code) => { finish(); code === 0 ? resolve() : reject(new Error(errorText.trim() || `Video download failed (${code})`)); });
   });
 }
 
@@ -130,9 +173,10 @@ function createVideoCache(root, options = {}) {
     const file = path.join(root, `${entry.id}.mp4`);
     return validVideo(file) ? { ...entry, path: file, hasAudio: hasAudioTrack(file) } : null;
   };
+  const fullQuality = (id) => Object.values(manifest).some((entry) => entry.id === id && atTargetQuality(entry));
   function save(song, candidate, onStatus = () => {}) {
     const existing = get(song);
-    if (existing?.id === candidate.id && (!options.withAudio || existing.hasAudio)) return mirror(existing, song);
+    if (existing?.id === candidate.id && (!options.withAudio || existing.hasAudio) && atTargetQuality(existing)) return mirror(existing, song);
     if (!/^[\w-]{11}$/.test(candidate.id)) return Promise.reject(new Error("Invalid video ID"));
     const key = songKey(song);
     const requestKey = `${key}|${candidate.id}`;
@@ -141,18 +185,31 @@ function createVideoCache(root, options = {}) {
     const task = tail.catch(() => {}).then(async () => {
       fs.mkdirSync(root, { recursive: true });
       const finalFile = path.join(root, `${candidate.id}.mp4`);
-      if (!validVideo(finalFile) || options.withAudio && !hasAudioTrack(finalFile)) {
+      if (!validVideo(finalFile) || options.withAudio && !hasAudioTrack(finalFile) || !fullQuality(candidate.id)) {
         onStatus("downloading");
         downloader ??= (options.ensureDownloader ?? ensureDownloader)(path.join(root, "tools")).catch((error) => { downloader = null; throw error; });
         const tool = await downloader;
         const tempFile = path.join(root, `${candidate.id}.${options.withAudio ? "audio." : ""}download.mp4`);
+        // A prior interrupted attempt can leave yt-dlp's per-stream fragments (e.g. ".f137.mp4", ".part")
+        // behind; stale ones can make the next merge silently produce an incomplete file.
+        const fragmentPrefix = path.basename(tempFile, ".mp4");
+        for (const name of fs.readdirSync(root)) {
+          if (name.startsWith(fragmentPrefix) && name !== path.basename(tempFile)) {
+            try { fs.unlinkSync(path.join(root, name)); } catch {}
+          }
+        }
         if (fs.existsSync(tempFile) && !validVideo(tempFile)) fs.unlinkSync(tempFile);
         await (options.downloadVideo ?? downloadVideo)(tool, candidate.id, tempFile, { withAudio: Boolean(options.withAudio) });
         if (!validVideo(tempFile)) throw new Error("The downloaded video is incomplete");
         if (options.withAudio && !hasAudioTrack(tempFile)) throw new Error("The video has no audio track. Try another version.");
         fs.renameSync(tempFile, finalFile);
       }
-      manifest[key] = { id: candidate.id, title: candidate.title, songTitle: song.title, artist: song.artist, policy, savedAt: new Date().toISOString() };
+      const height = (options.probeHeight ?? probeHeight)(finalFile, bundledFfmpeg());
+      manifest[key] = {
+        id: candidate.id, title: candidate.title, songTitle: song.title, artist: song.artist, policy,
+        quality: height ?? VIDEO_QUALITY, qualityCapped: height != null && height < VIDEO_QUALITY,
+        savedAt: new Date().toISOString(),
+      };
       fs.writeFileSync(`${manifestFile}.tmp`, JSON.stringify(manifest, null, 2));
       fs.renameSync(`${manifestFile}.tmp`, manifestFile);
       onStatus("saved");
@@ -176,4 +233,7 @@ function createVideoCache(root, options = {}) {
   return { get, save, list, pendingFor, root };
 }
 
-module.exports = { createVideoCache, ensureDownloader, validVideo, hasAudioTrack, cancelVideoDownloads };
+// Shared with main.js: whether a saved entry is done upgrading (hit the target, or capped below it).
+const atTargetQuality = (entry) => entry?.quality === VIDEO_QUALITY || Boolean(entry?.qualityCapped);
+
+module.exports = { VIDEO_QUALITY, atTargetQuality, createVideoCache, ensureDownloader, validVideo, hasAudioTrack, cancelVideoDownloads };

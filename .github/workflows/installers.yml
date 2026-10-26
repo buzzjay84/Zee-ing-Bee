@@ -70,6 +70,10 @@ jobs:
           path: |
             dist/*.exe
             dist/*.dmg
+            dist/*.zip
+            dist/*.yml
+            !dist/builder-debug.yml
+            dist/*.blockmap
             dist/SHA256SUMS-*.txt
           if-no-files-found: error
           compression-level: 0
