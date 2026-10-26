@@ -154,28 +154,23 @@ function allowedToRead(file) {
 function registerIpc() {
   const musicInfo = (entry) => ({ id: entry.id, title: entry.songTitle || entry.title, artist: entry.artist || "", hasAudio: entry.hasAudio });
   const musicSong = (entry) => ({ number: "MV", title: entry.songTitle || entry.title, artist: entry.artist || "", path: entry.path, mediaKind: "music-video", sourceVideoId: entry.id });
-  async function prepareMusic(entry, song) {
-    const saved = await savedVideos.save(song, { id: entry.id, title: entry.title });
-    return { song: musicSong(saved), url: videoUrl(saved.path) };
-  }
-  ipcMain.handle("music:list", (event) => event.sender === win.webContents ? savedVideos.list().map(musicInfo) : []);
+  // Music videos are saved automatically while their song plays in karaoke; listening never downloads.
+  const prepareMusic = (entry) => ({ song: musicSong(entry), url: videoUrl(entry.path) });
+  ipcMain.handle("music:list", (event) => event.sender === win.webContents ? savedVideos.list().filter((entry) => entry.hasAudio).map(musicInfo) : []);
   ipcMain.handle("music:play", async (event, id) => {
     if (event.sender !== win.webContents) throw new Error("Use the dashboard for music playback.");
-    const entry = savedVideos.list().find((item) => item.id === id);
+    const entry = savedVideos.list().find((item) => item.id === id && item.hasAudio);
     if (!entry) throw new Error("This music video has not been saved yet.");
-    return prepareMusic(entry, { title: entry.songTitle || entry.title, artist: entry.artist || "", cacheKey: entry.key });
+    return prepareMusic(entry);
   });
   ipcMain.handle("music:forSong", async (event, songPath) => {
     if (event.sender !== win.webContents) throw new Error("Use the dashboard for music playback.");
     const song = lib.songs.find((item) => item.path === songPath && item.mediaKind !== "video");
     if (!song) throw new Error("Select a MIDI song first.");
     let entry = savedVideos.get(song);
-    if (!entry) {
-      const candidates = await searchOnlineVideos(song);
-      if (!candidates.length) throw new Error("No matching music video or live performance found.");
-      entry = { ...candidates[0] };
-    }
-    return prepareMusic(entry, song);
+    if (!entry?.hasAudio) entry = await savedVideos.pendingFor(song)?.catch(() => null);
+    if (!entry?.hasAudio) throw new Error("This song's music video has not been saved yet. It saves automatically while the song plays.");
+    return prepareMusic(entry);
   });
   ipcMain.handle("assets:open", async (event) => {
     if (event.sender !== win.webContents) return;
@@ -243,7 +238,8 @@ function registerIpc() {
   ipcMain.handle("video:searchOnline", async (_event, songPath) => {
     const song = lib.songs.find((s) => s.path === songPath);
     if (!song) return [];
-    const cached = savedVideos.get(song);
+    const saved = savedVideos.get(song);
+    const cached = saved?.hasAudio ? saved : null;
     const notify = (state) => { if (!win.isDestroyed()) win.webContents.send("video:status", { songPath, state }); };
     notify(cached ? "saved-searching" : "searching");
     const items = await searchOnlineVideos(song, { refresh: true });
@@ -262,8 +258,9 @@ function registerIpc() {
     const dir = path.join(appRoot, "src", "assets", "videos");
     const backgrounds = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /\.(mp4|webm|m4v)$/i.test(f)) : [];
     const random = backgrounds.length ? path.join(dir, backgrounds[Math.floor(Math.random() * backgrounds.length)]) : null;
-    if (cached && win && !win.isDestroyed()) win.webContents.send("video:status", { songPath, state: "saved" });
-    return { matched: Boolean(match), cached: Boolean(cached), videoId: cached?.id, url: match ? videoUrl(match.path) : random ? videoUrl(random) : null, fallback: random ? videoUrl(random) : null, backgrounds: backgrounds.map((file) => videoUrl(path.join(dir, file))) };
+    const complete = cached?.hasAudio;
+    if (complete && win && !win.isDestroyed()) win.webContents.send("video:status", { songPath, state: "saved" });
+    return { matched: Boolean(match), cached: Boolean(complete), videoId: complete ? cached.id : undefined, url: match ? videoUrl(match.path) : random ? videoUrl(random) : null, fallback: random ? videoUrl(random) : null, backgrounds: backgrounds.map((file) => videoUrl(path.join(dir, file))) };
   });
   ipcMain.handle("display:open", (event) => {
     if (event.sender === win.webContents) openDisplay();

@@ -105,3 +105,16 @@ test("silent saved music videos are upgraded once to include original audio", as
   assert.equal(downloads, 1);
   assert.equal(music.list()[0].id, candidate.id);
 });
+
+test("an in-flight download for a song can be awaited without starting another", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zb-video-pending-"));
+  let downloads = 0;
+  const cache = createVideoCache(root, { withAudio: true, ensureDownloader: async () => "test", downloadVideo: async (_tool, _id, file) => { downloads++; sampleMp4(file); } });
+  assert.equal(cache.pendingFor(song), null);
+  const saving = cache.save(song, candidate);
+  const waited = await cache.pendingFor(song);
+  assert.equal(waited.id, (await saving).id);
+  assert.equal(waited.hasAudio, true);
+  assert.equal(cache.pendingFor(song), null);
+  assert.equal(downloads, 1);
+});

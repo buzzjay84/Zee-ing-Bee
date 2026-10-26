@@ -162,12 +162,18 @@ function createVideoCache(root, options = {}) {
     tail = task.catch(() => {});
     return task;
   }
+  // Resolves with the download already running for this song, if any.
+  const pendingFor = (song) => {
+    const prefix = `${songKey(song)}|`;
+    for (const [requestKey, task] of pending) if (requestKey.startsWith(prefix)) return task;
+    return null;
+  };
   const list = () => Object.entries(manifest).flatMap(([key, entry]) => {
     if (!/^[\w-]{11}$/.test(entry.id)) return [];
     const file = path.join(root, `${entry.id}.mp4`);
     return validVideo(file) ? [{ ...entry, key, path: file, hasAudio: hasAudioTrack(file) }] : [];
   });
-  return { get, save, list, root };
+  return { get, save, list, pendingFor, root };
 }
 
 module.exports = { createVideoCache, ensureDownloader, validVideo, hasAudioTrack, cancelVideoDownloads };

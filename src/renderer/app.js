@@ -25,6 +25,7 @@ let player = midiPlayer;
 let playRequest = 0;
 let playerReady = null;
 let playbackId = 0;
+let musicVideoSaved = false;
 const isRecordedVideo = (song) => song?.mediaKind === "video" || song?.mediaKind === "music-video";
 
 // ---------- Library ----------
@@ -179,13 +180,13 @@ async function showMusicLibrary() {
   $("music-status").textContent = "Loading saved music videos…";
   try {
     const items = await window.zb.listMusicVideos();
-    $("music-status").textContent = items.length ? "Choose a video to listen to. The next saved video will play automatically." : "No saved music videos yet. While a song plays, choose Listen instead to find and save its video.";
+    $("music-status").textContent = items.length ? "Choose a video to listen to. The next saved video will play automatically." : "No saved music videos yet. Music videos save automatically while their songs play in karaoke.";
     for (const item of items) {
       const row = document.createElement("li");
       const title = document.createElement("div");
       title.textContent = `${item.title}${item.artist ? ` · ${item.artist}` : ""}`;
       const button = document.createElement("button");
-      button.textContent = item.hasAudio ? "Play" : "Download audio & play";
+      button.textContent = "Play";
       button.onclick = () => prepareMusicPlayback(item.id);
       row.append(title, button);
       $("music-results").append(row);
@@ -198,8 +199,6 @@ async function prepareMusicPlayback(id, songPath) {
   player.stop();
   window.zb.hideDisplay();
   document.body.classList.remove("playing");
-  $("music-status").textContent = "Preparing original music video audio…";
-  toast("Preparing original music video audio…", 5000);
   const buttons = [...$("music-results").querySelectorAll("button")];
   buttons.forEach((button) => button.disabled = true);
   try {
@@ -219,7 +218,7 @@ async function prepareMusicPlayback(id, songPath) {
 async function playNextMusic() {
   const current = player.song?.sourceVideoId;
   try {
-    const items = (await window.zb.listMusicVideos()).filter((item) => item.hasAudio);
+    const items = await window.zb.listMusicVideos();
     if (!items.length) { leaveStage(); return; }
     const index = items.findIndex((item) => item.id === current);
     await prepareMusicPlayback(items[(index + 1) % items.length].id);
@@ -277,6 +276,7 @@ async function singNow(song) {
 function enterStage(song) {
   playbackId++;
   $("video-save-status").textContent = "";
+  musicVideoSaved = false;
   $("home").hidden = false;
   $("stage").hidden = true;
   document.body.classList.add("playing");
@@ -308,7 +308,7 @@ function stopSong() {
 
 function updateStageControls() {
   const isVideo = isRecordedVideo(player.song);
-  $("btn-listen-instead").disabled = isVideo || !player.song;
+  $("btn-listen-instead").disabled = isVideo || !player.song || !musicVideoSaved;
   const hasGuide = !isVideo && player.melodyChannel !== -1;
   for (const id of ["key-down", "key-up", "btn-guide", "btn-mixer"]) $(id).disabled = isVideo;
   $("btn-guide").disabled = !hasGuide;
@@ -516,6 +516,8 @@ function wire() {
   wireKaraokeSearch({ applyLibrary, singNow, reserve });
   window.zb.onVideoStatus(({ songPath, state: status }) => {
     if (player.song?.path !== songPath) return;
+    if (status === "saved" || status === "saved-searching") musicVideoSaved = true;
+    updateStageControls();
     $("video-save-status").textContent = ({ searching: "Finding a music video or live performance…", "saved-searching": "Playing saved video · Checking for a newer match…", loading: "Loading music video or live performance…", background: "No matching video · Using background", queued: "Video queued for offline saving", downloading: "Saving music video for offline playback…", saved: "Video saved · Available offline", failed: "Video could not be saved · Streaming only" })[status] ?? "";
   });
   // Keep playback controls on the dashboard; only the lyrics go to the display.
