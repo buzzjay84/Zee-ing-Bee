@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' app:; script-src 'self' app: https://www.youtube.com https://s.ytimg.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; style-src 'self' app: 'unsafe-inline'; img-src 'self' app: data: https://i.ytimg.com">
+  <title>Karaoke Display</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="display.js"></script>
+</head>
+<body>
+  <main id="stage">
+    <div class="backdrop" aria-hidden="true"><span></span><span></span><span></span></div>
+    <video id="background-video" class="background-video" muted autoplay loop playsinline></video>
+    <div id="online-video" class="online-video" hidden></div>
+    <div class="video-shade" aria-hidden="true"></div>
+    <div id="title-card" class="title-card">
+      <div id="tc-number" class="tc-number"></div>
+      <div id="tc-title" class="tc-title">Zee-ing Bee</div>
+      <div id="tc-artist" class="tc-artist">Ready to sing</div>
+    </div>
+    <div id="intro-indicator" class="intro-indicator" hidden>
+      <span class="intro-label">INTRO</span>
+      <span id="intro-countdown" class="intro-countdown"></span>
+      <div class="intro-progress"><div id="intro-progress-fill"></div></div>
+    </div>
+    <div class="lyrics">
+      <div id="display-countin" class="line countin" hidden></div>
+      <div id="slot-0" class="line slot-0"></div>
+      <div id="slot-1" class="line slot-1"></div>
+    </div>
+    <div id="stage-number" class="stage-number" hidden></div>
+  </main>
+</body>
+</html>

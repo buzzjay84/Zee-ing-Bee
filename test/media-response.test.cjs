@@ -1,0 +1,20 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+const { mediaResponse } = require("../src/main/media-response");
+test("video seeking returns the requested byte range instead of the entire file", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zb-media-range-"));
+  const file = path.join(root, "video.mp4");
+  fs.writeFileSync(file, "0123456789");
+  const request = (range) => new Request("https://test/video", { headers: { Range: range } });
+  const response = mediaResponse(file, request("bytes=3-6"));
+  assert.equal(response.status, 206);
+  assert.equal(response.headers.get("content-range"), "bytes 3-6/10");
+  assert.equal(await response.text(), "3456");
+  assert.equal(await mediaResponse(file, request("bytes=-3")).text(), "789");
+  assert.equal(mediaResponse(file, request("bytes=20-")).status, 416);
+  assert.equal(mediaResponse(file, request("bytes=9-2")).status, 416);
+  assert.equal(await mediaResponse(file, new Request("https://test/video")).text(), "0123456789");
+});

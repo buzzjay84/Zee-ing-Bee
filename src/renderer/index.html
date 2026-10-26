@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' app:; script-src 'self' app: 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' app: 'unsafe-inline'; img-src 'self' app: data:">
+  <title>Zee-ing Bee</title>
+  <link rel="icon" type="image/png" href="../assets/branding/zee-ing-bee-logo.png">
+  <link rel="stylesheet" href="styles.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "spessasynth_lib": "app://bundle/node_modules/spessasynth_lib/dist/index.js",
+        "spessasynth_core": "app://bundle/node_modules/spessasynth_core/dist/index.js",
+        "stb-vorbis": "app://bundle/node_modules/stb-vorbis/dist/index.js"
+      }
+    }
+  </script>
+  <script src="../shared/search.js"></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <!-- Song list, keypad and reserve list -->
+  <main id="home">
+    <header class="topbar">
+      <div class="brand"><img class="brand-logo" src="../assets/branding/zee-ing-bee-logo.png" alt="Zee-ing Bee" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden>Zee-ing Bee</span></div>
+      <div class="actions">
+        <button id="btn-online-karaoke" class="ghost">Find online karaoke</button>
+        <button id="btn-display" class="ghost">Open display</button>
+        <button id="btn-add-folder" class="ghost">＋ Add song folder</button>
+        <button id="btn-songbook" class="ghost">Songbook (PDF)</button>
+        <button id="btn-settings" class="ghost">Settings</button>
+      </div>
+    </header>
+
+    <section class="panel songs">
+      <div class="search-row">
+        <input id="search" type="search" placeholder="Search title, artist or number" autocomplete="off">
+        <span id="song-count" class="muted"></span>
+      </div>
+      <div id="chips" class="chips"></div>
+      <p id="search-note" class="muted small" role="status" hidden></p>
+      <ol id="song-list" class="song-list"></ol>
+      <div id="empty" class="empty" hidden>
+        <p>No songs yet.</p>
+        <p class="muted">Add a folder with your MIDI or KAR karaoke files. Name them <code>Title - Artist.kar</code>; subfolders become categories.</p>
+        <button id="btn-add-folder-2">＋ Add song folder</button>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="panel pad">
+        <div id="number-display" class="number-display" aria-live="polite">-----</div>
+        <div id="number-song" class="number-song muted">Type a song number</div>
+        <div class="keypad" id="keypad">
+          <button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button>
+          <button data-key="4">4</button><button data-key="5">5</button><button data-key="6">6</button>
+          <button data-key="7">7</button><button data-key="8">8</button><button data-key="9">9</button>
+          <button data-key="clear" class="soft">C</button><button data-key="0">0</button><button data-key="back" class="soft">⌫</button>
+        </div>
+        <div class="pad-actions">
+          <button id="btn-reserve">Reserve</button>
+          <button id="btn-sing-now" class="primary">▶ Sing now</button>
+        </div>
+      </section>
+
+    </aside>
+
+      <section class="panel queue">
+        <h2>Reserved <span id="queue-count" class="muted"></span></h2>
+        <ol id="queue" class="queue-list"></ol>
+        <p id="queue-empty" class="muted small">Reserve songs by number, even while someone sings.</p>
+      </section>
+  </main>
+
+  <!-- The stage -->
+  <div id="stage" hidden>
+    <div class="backdrop" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div id="title-card" class="title-card">
+      <div id="tc-number" class="tc-number"></div>
+      <div id="tc-title" class="tc-title"></div>
+      <div id="tc-artist" class="tc-artist"></div>
+    </div>
+    <div class="lyrics">
+      <div class="line slot-0" id="slot-0"></div>
+      <div class="line slot-1" id="slot-1"></div>
+    </div>
+    <div id="stage-number" class="stage-number" hidden></div>
+    <div id="toast" class="toast" hidden></div>
+
+    <footer class="stage-bar">
+      <div class="now">
+        <div id="now-title" class="now-title"></div>
+        <div id="next-up" class="muted small"></div>
+        <div id="video-save-status" class="muted small"></div>
+        <div class="progress"><div id="progress-fill"></div></div>
+      </div>
+      <div class="controls">
+        <div class="stepper" title="Key">
+          <button id="key-down" aria-label="Key down">♭</button>
+          <span id="key-value">Key 0</span>
+          <button id="key-up" aria-label="Key up">♯</button>
+        </div>
+        <div class="stepper" title="Tempo">
+          <button id="tempo-down" aria-label="Slower">−</button>
+          <span id="tempo-value">100%</span>
+          <button id="tempo-up" aria-label="Faster">＋</button>
+        </div>
+        <button id="btn-guide" class="toggle on" title="Guide melody">Guide</button>
+        <button id="btn-mixer" title="Sound mixer">Mixer</button>
+        <button id="btn-pause" title="Pause (Space)">❚❚</button>
+        <button id="btn-skip" title="Next song">⏭</button>
+        <button id="btn-stop" class="danger" title="Stop">■</button>
+      </div>
+    </footer>
+
+    <div id="mixer" class="mixer" hidden>
+      <h3>Sound mixer</h3>
+      <label>Melody <input type="range" min="0" max="2" step="0.05" value="1" data-mix="melody"></label>
+      <label>Bass <input type="range" min="0" max="2" step="0.05" value="1" data-mix="bass"></label>
+      <label>Drums <input type="range" min="0" max="2" step="0.05" value="1" data-mix="drums"></label>
+      <label>Band <input type="range" min="0" max="2" step="0.05" value="1" data-mix="band"></label>
+      <label>Echo <input type="range" min="0" max="1" step="0.05" value="0" id="mix-echo"></label>
+      <label>Volume <input type="range" min="0" max="1.5" step="0.05" value="1" id="mix-volume"></label>
+    </div>
+  </div>
+
+  <dialog id="online-karaoke">
+    <form id="karaoke-search-form">
+      <h2>Find online karaoke</h2>
+      <p class="muted small">Search for a missing song, then save a karaoke video with its backing track and lyrics for offline playback.</p>
+      <label class="karaoke-field">Song title <input id="karaoke-title" type="text" required maxlength="160" placeholder="Song title"></label>
+      <label class="karaoke-field">Artist <input id="karaoke-artist" type="text" required maxlength="160" placeholder="Original artist"></label>
+      <div class="row"><button id="karaoke-search-button" class="primary" type="submit">Search</button><button id="karaoke-close" type="button">Close</button></div>
+    </form>
+    <p id="karaoke-status" class="muted small" role="status"></p>
+    <ol id="karaoke-results" class="karaoke-results"></ol>
+  </dialog>
+
+  <!-- Settings -->
+  <dialog id="settings">
+    <form method="dialog">
+      <h2>Settings</h2>
+      <h3>Sound bank</h3>
+      <div class="row">
+        <select id="soundbank-select"></select>
+        <button type="button" id="btn-add-soundbank" class="ghost">Add .sf2…</button>
+      </div>
+      <p id="soundbank-note" class="muted small"></p>
+
+      <h3>Song folders</h3>
+      <ul id="folder-list" class="folder-list"></ul>
+      <div class="row">
+        <button type="button" id="btn-add-folder-3" class="ghost">＋ Add folder</button>
+        <button type="button" id="btn-rescan" class="ghost">Look for new songs</button>
+      </div>
+
+      <h3>Lyrics</h3>
+      <label class="row">Size <input type="range" id="lyric-size" min="3" max="8" step="0.25"></label>
+      <label class="row">Sung colour <input type="color" id="lyric-color"></label>
+
+      <div class="row end"><button value="close" class="primary">Done</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

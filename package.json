@@ -1,0 +1,78 @@
+{
+  "name": "zeenging-bee",
+  "productName": "Zee-ing Bee",
+  "version": "1.0.0",
+  "description": "Videoke at home: song numbers, a reserve list and lyrics that colour as you sing.",
+  "main": "src/main/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node scripts/start.cjs",
+    "dev": "node scripts/start.cjs",
+    "make-demo-songs": "node scripts/make-demo-songs.mjs",
+    "fetch-soundfont": "node scripts/fetch-soundfont.mjs",
+    "make-icons": "node scripts/make-icons.cjs",
+    "test": "node --test \"test/*.test.*\"",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist": "npm run fetch-soundfont && npm run make-demo-songs && electron-builder"
+  },
+  "build": {
+    "appId": "com.zeengingbee.app",
+    "productName": "Zee-ing Bee",
+    "files": [
+      "src/**/*",
+      "!src/assets/packs/**/*",
+      "!src/assets/soundfonts/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "src/assets/packs/",
+        "to": "resources/packs/",
+        "filter": [
+          "*.zip"
+        ]
+      },
+      {
+        "from": "resources/",
+        "to": "resources/",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "resources/icons/zee-ing-bee.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "installerIcon": "resources/icons/zee-ing-bee.ico",
+      "uninstallerIcon": "resources/icons/zee-ing-bee.ico",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "icon": "resources/icons/zee-ing-bee.icns",
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.music"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@electron-internal/extract-zip": "^1.0.6",
+    "spessasynth_lib": "4.3.14"
+  },
+  "devDependencies": {
+    "electron": "44.9.3",
+    "electron-builder": "26.17.0",
+    "png2icons": "^2.0.1"
+  }
+}
