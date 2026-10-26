@@ -7,13 +7,15 @@ function setup(t) {
   const previousDocument = globalThis.document;
   const players = [];
   class FakePlayer {
-    constructor(_mount, options) { this.events = options.events; players.push(this); }
+    constructor(_mount, options) { this.events = options.events; this.modules = ["captions"]; this.unloads = 0; players.push(this); }
     destroy() { this.destroyed = true; }
     mute() {}
     setVolume() {}
     seekTo() {}
     playVideo() {}
     pauseVideo() {}
+    getOptions() { return this.modules; }
+    unloadModule() { this.modules = []; this.unloads++; }
   }
   globalThis.window = { YT: { Player: FakePlayer, PlayerState: { PLAYING: 1, ENDED: 0 } } };
   globalThis.document = { hidden: false, createElement: () => ({}), addEventListener() {} };
@@ -50,4 +52,14 @@ test("pausing during startup does not discard the selected video", async (t) => 
   controller.sync({ paused: false, time: 0, tempo: 1 });
   t.mock.timers.tick(12000);
   assert.equal(controller.candidateId, "live");
+});
+
+test("caption removal does not repeatedly unload an already removed module", async (t) => {
+  const { controller, players } = setup(t);
+  await controller.load([{ id: "music" }]);
+  const player = players[0];
+  player.events.onReady({ target: player });
+  player.events.onApiChange({ target: player });
+  player.events.onApiChange({ target: player });
+  assert.equal(player.unloads, 1);
 });

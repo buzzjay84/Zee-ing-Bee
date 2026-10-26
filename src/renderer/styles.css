@@ -238,6 +238,8 @@ body > .mixer { z-index: 5; }
 .stepper { display: flex; align-items: center; gap: 4px; }
 .stepper span { min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
 .toggle.on { background: var(--honey); color: #1d1300; border-color: var(--honey); }
+.guide-level { display: grid; gap: 3px; font-size: 11px; color: var(--muted); }
+.guide-level input { width: 88px; }
 .mixer {
   position: absolute; right: 20px; bottom: 84px; width: 300px;
   background: rgba(20, 14, 2, 0.95); border: 1px solid var(--line); border-radius: var(--radius);

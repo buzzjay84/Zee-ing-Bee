@@ -5,6 +5,10 @@ const { spawn } = require("node:child_process");
 const { SELECTION_POLICY } = require("./online-videos");
 
 const TOOL_RELEASE = "2026.10.21";
+const activeDownloads = new Set();
+function cancelVideoDownloads() {
+  for (const child of activeDownloads) child.kill();
+}
 const songKey = (song) => crypto.createHash("sha256").update(`${song.title.trim().toLowerCase()}|${song.artist.trim().toLowerCase()}`).digest("hex");
 
 async function ensureDownloader(toolsDir) {
@@ -36,6 +40,8 @@ function downloadVideo(tool, id, output, { nodePath = process.execPath, withAudi
       "-f", withAudio ? "best[ext=mp4][height<=720][acodec!=none][vcodec!=none]" : "bestvideo[ext=mp4][vcodec^=avc1][height<=720]/best[ext=mp4][height<=720]",
       "-o", output, `https://www.youtube.com/watch?v=${id}`,
     ], { windowsHide: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "ignore", "pipe"] });
+    activeDownloads.add(child);
+    child.once("close", () => activeDownloads.delete(child));
     let errorText = "";
     child.stderr.on("data", (chunk) => { errorText = (errorText + chunk.toString()).slice(-3000); });
     const timer = setTimeout(() => { child.kill(); reject(new Error("Video download timed out")); }, 300000);
@@ -124,4 +130,4 @@ function createVideoCache(root, options = {}) {
   return { get, save, root };
 }
 
-module.exports = { createVideoCache, ensureDownloader, validVideo };
+module.exports = { createVideoCache, ensureDownloader, validVideo, cancelVideoDownloads };

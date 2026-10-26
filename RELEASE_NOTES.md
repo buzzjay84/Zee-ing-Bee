@@ -12,6 +12,7 @@
 - A separate karaoke display while the dashboard stays available for song selection, reservations and playback controls.
 - Automatic use of a second monitor when one is connected.
 - MIDI/KAR playback with timed lyric highlighting, an intro countdown, key and tempo controls, guide melody and a sound mixer.
+- An enabled-by-default melody guide with an On/Off button and a dedicated volume slider to help singers follow the tune. Guide preferences are remembered between sessions.
 - Permanent five-digit song numbers, category filters, exact search matches above suggested songs, and a printable PDF songbook.
 - Background videos prioritize official music videos, then Wish or other live performances, then a random background. Background video audio stays muted.
 - Matching online background videos save locally for later offline playback when downloading succeeds.
@@ -21,6 +22,8 @@
 ## Fixes
 
 - Improved recovery and failover when a video freezes or cannot play.
+- Fixed online background lookup on fresh installations without local background videos.
+- Active video downloads stop when the app quits, preserving partial files for retry.
 - Fixed stale video callbacks and download results affecting a different song or source.
 - Pausing while a video loads no longer incorrectly discards that source.
 - Added local-video byte-range support for seeking and stricter checks for incomplete MP4 downloads.

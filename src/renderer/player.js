@@ -17,7 +17,7 @@ export class Player {
     this.key = 0;
     this.tempo = 1;
     this.guide = true;
-    this.mix = { melody: 1, bass: 1, drums: 1, band: 1 };
+    this.mix = { melody: 1.35, bass: 1, drums: 1, band: 1 };
     this.soundBankPath = null;
     this.onEnded = () => {};
   }

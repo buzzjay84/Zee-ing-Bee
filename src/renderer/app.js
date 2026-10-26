@@ -33,6 +33,11 @@ function applyLibrary(data) {
   state.byNumber = new Map(data.songs.map((s) => [String(s.number), s]));
   state.folders = data.folders;
   state.settings = data.settings ?? {};
+  midiPlayer.setGuide(state.settings.guideEnabled ?? true);
+  midiPlayer.setMix("melody", state.settings.guideVolume ?? 1.35);
+  $("guide-level").value = midiPlayer.mix.melody;
+  const mixerGuide = document.querySelector('[data-mix="melody"]');
+  if (mixerGuide) mixerGuide.value = midiPlayer.mix.melody;
   state.soundBanks = data.soundBanks;
   state.queue = state.queue.filter((s) => state.byNumber.has(String(s.number)));
   applyLyricStyle();
@@ -246,11 +251,16 @@ function stopSong() {
 
 function updateStageControls() {
   const isVideo = player.song?.mediaKind === "video";
+  const hasGuide = !isVideo && player.melodyChannel !== -1;
   for (const id of ["key-down", "key-up", "btn-guide", "btn-mixer"]) $(id).disabled = isVideo;
+  $("btn-guide").disabled = !hasGuide;
+  $("guide-level").disabled = !hasGuide;
   $("key-value").textContent = `Key ${player.key > 0 ? "+" : ""}${player.key}`;
   $("tempo-value").textContent = `${Math.round(player.tempo * 100)}%`;
-  $("btn-guide").classList.toggle("on", player.guide);
-  $("btn-guide").title = player.melodyChannel === -1 ? "This song has no guide melody to switch" : "Guide melody";
+  $("btn-guide").classList.toggle("on", hasGuide && player.guide);
+  $("btn-guide").textContent = hasGuide ? `Guide: ${player.guide ? "On" : "Off"}` : "Guide: unavailable";
+  $("btn-guide").setAttribute("aria-pressed", String(hasGuide && player.guide));
+  $("btn-guide").title = hasGuide ? "Play the vocal melody to help you follow the tune" : "This song has no separate MIDI melody guide";
   $("btn-pause").textContent = player.paused ? "▶" : "❚❚";
 }
 
@@ -486,7 +496,20 @@ function wire() {
   $("key-up").onclick = () => (player.setKey(player.key + 1), updateStageControls());
   $("tempo-down").onclick = () => (player.setTempo(player.tempo - 0.05), updateStageControls());
   $("tempo-up").onclick = () => (player.setTempo(player.tempo + 0.05), updateStageControls());
-  $("btn-guide").onclick = () => (player.setGuide(!player.guide), updateStageControls());
+  $("btn-guide").onclick = () => {
+    midiPlayer.setGuide(!midiPlayer.guide);
+    state.settings.guideEnabled = midiPlayer.guide;
+    window.zb.setSettings({ guideEnabled: midiPlayer.guide });
+    updateStageControls();
+  };
+  $("guide-level").oninput = (event) => {
+    const volume = Number(event.target.value);
+    midiPlayer.setMix("melody", volume);
+    state.settings.guideVolume = volume;
+    const mixerGuide = document.querySelector('[data-mix="melody"]');
+    if (mixerGuide) mixerGuide.value = volume;
+  };
+  $("guide-level").onchange = () => window.zb.setSettings({ guideVolume: midiPlayer.mix.melody });
   $("btn-pause").onclick = () => (player.togglePause(), updateStageControls());
   $("btn-skip").onclick = () => playNext();
   $("btn-stop").onclick = () => stopSong();
@@ -494,8 +517,15 @@ function wire() {
   $("mixer").addEventListener("input", (e) => {
     const part = e.target.dataset.mix;
     if (part) player.setMix(part, Number(e.target.value));
+    if (part === "melody") {
+      state.settings.guideVolume = Number(e.target.value);
+      $("guide-level").value = state.settings.guideVolume;
+    }
     if (e.target.id === "mix-echo") player.setEcho(Number(e.target.value));
     if (e.target.id === "mix-volume") player.setVolume(Number(e.target.value));
+  });
+  $("mixer").addEventListener("change", (event) => {
+    if (event.target.dataset.mix === "melody") window.zb.setSettings({ guideVolume: midiPlayer.mix.melody });
   });
   $("stage").addEventListener("mousemove", wakeStage);
 

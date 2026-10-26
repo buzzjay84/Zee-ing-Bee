@@ -52,7 +52,9 @@ jobs:
       - name: Install Electron runtime
         run: node node_modules/electron/install.js
       - name: Test
-        run: npm test
+        run: |
+          npm run make-demo-songs
+          npm test
       - name: Download basic sound bank and license
         run: npm run fetch-soundfont
       - name: Prepare installer configuration

@@ -1,5 +1,13 @@
 import { createVideoHealth } from "./video-health.js";
 let apiPromise;
+function hideCaptions(player) {
+  // Some embeds inherit a caption preference even with the controls hidden.
+  try {
+    const modules = player.getOptions?.();
+    if (Array.isArray(modules) && !modules.includes("captions")) return;
+    player.unloadModule?.("captions");
+  } catch {}
+}
 function youtubeApi() {
   if (window.YT?.Player) return Promise.resolve(window.YT);
   if (!apiPromise) apiPromise = new Promise((resolve, reject) => {
@@ -77,12 +85,13 @@ export function createOnlineVideo(container, background, onPlaying = () => {}) {
       timer = setTimeout(checkStartup, 12000);
       player = new YT.Player(mount, {
         width: "100%", height: "100%", videoId: candidate.id,
-        playerVars: { autoplay: 0, controls: 0, playsinline: 1, disablekb: 1, origin: location.origin },
+        playerVars: { autoplay: 0, controls: 0, playsinline: 1, disablekb: 1, cc_load_policy: 0, origin: location.origin },
         events: {
           onReady: (event) => {
             if (!current()) return;
             ready = true;
             event.target.mute();
+            hideCaptions(event.target);
             event.target.setVolume(0);
             event.target.seekTo(frame?.time ?? 0, true);
             if (!frame?.paused) event.target.playVideo();
@@ -90,6 +99,7 @@ export function createOnlineVideo(container, background, onPlaying = () => {}) {
           onStateChange: (event) => {
             if (!current()) return;
             if (event.data === YT.PlayerState.PLAYING) {
+              hideCaptions(event.target);
               clearTimeout(timer);
               visible = true;
               container.dataset.status = "playing";
@@ -105,6 +115,7 @@ export function createOnlineVideo(container, background, onPlaying = () => {}) {
             }
           },
           onError: () => { if (current()) next(); },
+          onApiChange: (event) => { if (current()) hideCaptions(event.target); },
           onAutoplayBlocked: () => { if (current()) next(); },
         },
       });

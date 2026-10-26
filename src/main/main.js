@@ -7,7 +7,7 @@ const { prepareBundledSongs } = require("./bundled-songs");
 const { buildSongbookHtml } = require("./songbook");
 const { indexVideos, matchVideo } = require("./videos");
 const { createOnlineSearch } = require("./online-videos");
-const { createVideoCache } = require("./video-cache");
+const { createVideoCache, cancelVideoDownloads } = require("./video-cache");
 const { validateQuery, searchKaraoke } = require("./karaoke");
 const { mediaResponse } = require("./media-response");
 
@@ -429,3 +429,4 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+app.on("before-quit", cancelVideoDownloads);

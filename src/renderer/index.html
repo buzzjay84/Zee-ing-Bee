@@ -105,7 +105,8 @@
           <span id="tempo-value">100%</span>
           <button id="tempo-up" aria-label="Faster">＋</button>
         </div>
-        <button id="btn-guide" class="toggle on" title="Guide melody">Guide</button>
+        <button id="btn-guide" class="toggle on" aria-pressed="true" title="Play the vocal melody to help you follow the tune">Guide: On</button>
+        <label class="guide-level" title="Guide melody volume">Guide volume <input id="guide-level" type="range" min="0" max="2" step="0.05" value="1.35" aria-label="Guide melody volume"></label>
         <button id="btn-mixer" title="Sound mixer">Mixer</button>
         <button id="btn-pause" title="Pause (Space)">❚❚</button>
         <button id="btn-skip" title="Next song">⏭</button>

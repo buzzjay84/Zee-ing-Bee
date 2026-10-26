@@ -52,12 +52,12 @@ async function chooseVideo(songPath) {
   if (!selection?.url) {
     video.removeAttribute("src");
     video.load();
-    return;
+  } else {
+    video.src = selection.url;
+    video.loop = !selection.karaoke;
+    video.load();
   }
-  video.src = selection.url;
-  video.loop = !selection.karaoke;
-  video.load();
-  if (!selection.karaoke) {
+  if (selection && !selection.karaoke) {
     const candidates = await window.zb.searchOnlineVideo(songPath);
     if (songPath !== currentSong || playback !== currentPlayback) return;
     onlineCandidates = candidates;
@@ -74,7 +74,7 @@ video.addEventListener("error", () => {
 });
 function syncVideo(data) {
   const now = performance.now();
-  const active = !data.paused && !online.visible && !document.hidden;
+  const active = Boolean(videoSelection?.url) && !data.paused && !online.visible && !document.hidden;
   const action = health.check(video.currentTime, now, active);
   if (action === "recover") {
     video.load();
