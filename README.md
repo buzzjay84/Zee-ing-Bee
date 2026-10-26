@@ -48,7 +48,13 @@ ZB_SMOKE=/tmp/zb.png npm start
 ## Installers
 
 - **Windows:** `npx electron-builder --win` makes `dist/Zee-ing Bee Setup <version>.exe`.
-- **macOS:** `.dmg` files must be built on a Mac: run `npx electron-builder --mac` there, or run the **Build installers** GitHub Action (`.github/workflows/build.yml`), which builds both platforms.
+- **macOS:** `.dmg` files must be built on a Mac: run `npx electron-builder --mac` there.
+
+The **Build installers** GitHub Action (`.github/workflows/installers.yml`) builds Windows x64 `.exe`, Apple Silicon `.dmg` and Intel Mac `.dmg` installers. It runs on pushes to `main`, pull requests, `v*` tags, and manually from **Actions → Build installers → Run workflow**. Downloads and SHA-256 checksums are saved as workflow artifacts for 30 days. Version tags also publish all three installers to a GitHub Release.
+
+Edit `RELEASE_NOTES.md` before creating each version tag. Once all three builds succeed, the release job posts that file as the GitHub Release description and attaches the installers and checksums. Re-running a tagged build updates the same release notes and replaces its build files.
+
+CI builds include the basic GeneralUser sound bank and its license. Private songs, videos, logos and icons are excluded. Google Drive asset downloads and the 10% early-use feature are deferred until the asset upload is configured.
 
 The builds are unsigned for now. On Windows, SmartScreen shows "More info → Run anyway". On macOS, right-click the app → **Open** the first time, or run `xattr -cr "/Applications/Zee-ing Bee.app"`. Signing needs a code-signing certificate (Windows) and an Apple Developer ID (macOS).
 
