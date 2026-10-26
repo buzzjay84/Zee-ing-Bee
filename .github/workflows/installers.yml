@@ -16,6 +16,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  version:
+    name: Detect a version bump
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      is_release: ${{ steps.v.outputs.is_release }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v$(node -p "require('./package.json').version")"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # A direct push of a version tag always releases (re-running one updates it in
+          # place). A push to main releases only the first time that version is seen, so
+          # commits between version bumps just build and test without publishing anything.
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]] && ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: ${{ matrix.platform }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
@@ -89,9 +114,9 @@ jobs:
           retention-days: 30
 
   release:
-    name: Publish tagged installers
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    name: Publish release
+    if: needs.version.outputs.is_release == 'true'
+    needs: [version, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -102,11 +127,21 @@ jobs:
           pattern: zee-ing-bee-*
           path: installers
           merge-multiple: true
+      - name: Tag this version, if not already tagged
+        env:
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          if ! git rev-parse "$RELEASE_TAG" >/dev/null 2>&1; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "$RELEASE_TAG" -m "Zee-ing Bee $RELEASE_TAG"
+            git push origin "$RELEASE_TAG"
+          fi
       - name: Publish release downloads
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
         shell: bash
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
