@@ -13,6 +13,10 @@ const { mediaResponse } = require("./media-response");
 const { createAssetExporter } = require("./asset-exports");
 const { createUpdater } = require("./updater");
 const { createPackDownloader, UNLOCK_FRACTION } = require("./pack-downloader");
+const { createRemoteServer } = require("./remote-server");
+const { searchSongs } = require("../shared/search");
+const { DEVICE_NAME: BLUETOOTH_DEVICE_NAME } = require("../shared/bluetooth");
+const qrcode = require("qrcode");
 
 const APP_NAME = "Zee-ing Bee";
 // Reuse existing libraries and downloaded videos after the display-name change.
@@ -36,6 +40,7 @@ let savedVideos;
 let karaokeVideos;
 let assetExporter;
 let updater;
+let remoteServer;
 let libraryReady;
 let packStatus = { state: "idle", percent: 0 };
 const karaokeSearches = new Map();
@@ -213,6 +218,35 @@ function allowedToRead(file) {
   return lib.songs.some((s) => s.path === resolved) || soundBanks().some((b) => b.path === resolved);
 }
 
+/** What a phone is allowed to see of a song: enough to search/reserve/play, never local file paths. */
+function remoteSongInfo(song) {
+  return { number: song.number, title: song.title, artist: song.artist, category: song.category, mediaKind: song.mediaKind ?? "midi" };
+}
+
+async function remoteSongFile(number) {
+  const song = lib.songs.find((s) => String(s.number) === String(number));
+  if (!song || song.mediaKind === "video" || song.mediaKind === "music-video") return null;
+  return fs.promises.readFile(song.path).catch(() => null);
+}
+
+async function remoteSoundbank() {
+  const active = lib.settings.soundBank ?? soundBanks()[0]?.path;
+  if (!active) return null;
+  try {
+    return { name: path.basename(active, path.extname(active)), data: await fs.promises.readFile(active) };
+  } catch {
+    return null;
+  }
+}
+
+async function remoteSongVideo(number) {
+  const song = lib.songs.find((s) => String(s.number) === String(number));
+  if (!song) return null;
+  if (song.mediaKind === "video") return fs.existsSync(song.path) ? song.path : null;
+  const cached = savedVideos?.get(song);
+  return cached && fs.existsSync(cached.path) ? cached.path : null;
+}
+
 function registerIpc() {
   const musicInfo = (entry) => ({ id: entry.id, title: entry.songTitle || entry.title, artist: entry.artist || "", hasAudio: entry.hasAudio });
   const musicSong = (entry) => ({ number: "MV", title: entry.songTitle || entry.title, artist: entry.artist || "", path: entry.path, mediaKind: "music-video", sourceVideoId: entry.id });
@@ -340,6 +374,15 @@ function registerIpc() {
   ipcMain.handle("update:install", (event) => event.sender === win?.webContents ? updater?.install() ?? false : false);
   ipcMain.handle("library:get", () => publicState());
   ipcMain.handle("packs:status", () => packStatus);
+  ipcMain.handle("remote:info", async () => {
+    if (!remoteServer) return null;
+    const { token, networks, clientCount } = remoteServer.info();
+    const withQr = await Promise.all(networks.map(async (network) => ({ ...network, qrDataUrl: await qrcode.toDataURL(network.url) })));
+    return { token, networks: withQr, clientCount };
+  });
+  ipcMain.handle("remote:state", (event, state) => {
+    if (event.sender === win.webContents) remoteServer?.broadcastState(state);
+  });
 
   ipcMain.handle("library:addFolder", async () => {
     const res = await dialog.showOpenDialog(win, { title: "Add a song folder", properties: ["openDirectory"] });
@@ -427,6 +470,14 @@ function createWindow() {
   });
   win.loadURL(`app://bundle/src/renderer/index.html${process.env.ZB_SMOKE ? "?smoke" : ""}`);
   blockSmokeNetwork(win.webContents.session);
+  // Electron intercepts Web Bluetooth's device picker itself; auto-pick the phone
+  // (there's only ever one match, since requestDevice() already filters by service UUID)
+  // instead of showing an OS-level chooser - this is what makes reconnects silent.
+  win.webContents.on("select-bluetooth-device", (event, deviceList, callback) => {
+    event.preventDefault();
+    const device = deviceList.find((d) => d.deviceName === BLUETOOTH_DEVICE_NAME) ?? deviceList[0];
+    callback(device?.deviceId ?? "");
+  });
   win.on("closed", () => { if (displayWindow && !displayWindow.isDestroyed()) displayWindow.close(); });
   if (process.env.ZB_SMOKE) runSmokeTest();
 }
@@ -529,6 +580,21 @@ app.whenReady().then(async () => {
   registerIpc();
   createWindow();
   if (!process.env.ZB_SMOKE) {
+    remoteServer = createRemoteServer({
+      staticDir: path.join(appRoot, "src", "mobile-remote"),
+      getSongs: () => lib.songs.map(remoteSongInfo),
+      searchSongs,
+      readSongFile: remoteSongFile,
+      readSoundbank: remoteSoundbank,
+      readSongVideo: remoteSongVideo,
+      onAction: (action) => { if (win && !win.isDestroyed()) win.webContents.send("remote:action", action); },
+      onClientsChanged: (count) => { if (win && !win.isDestroyed()) win.webContents.send("remote:clients", count); },
+    });
+    remoteServer.start()
+      .then(() => console.log("Remote control server listening:", remoteServer.info().networks.map((n) => n.url).join(" or ")))
+      .catch((error) => console.warn("Remote control server failed to start:", error.message));
+  }
+  if (!process.env.ZB_SMOKE) {
     const { autoUpdater } = require("electron-updater");
     updater = createUpdater({
       app,
@@ -558,4 +624,4 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
-app.on("before-quit", () => { cancelVideoDownloads(); updater?.stop(); });
+app.on("before-quit", () => { cancelVideoDownloads(); updater?.stop(); remoteServer?.stop(); });

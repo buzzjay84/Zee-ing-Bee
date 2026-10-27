@@ -291,6 +291,15 @@ dialog {
 dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 #online-karaoke { width: min(700px, 94vw); max-height: 88vh; overflow-y: auto; }
 #music-library { width: min(700px, 94vw); max-height: 85vh; overflow-y: auto; }
+#remote { width: min(360px, 92vw); text-align: center; }
+#remote-qr { display: block; margin: 12px auto; background: #fff; border-radius: 8px; padding: 10px; }
+#remote-url { word-break: break-all; }
+.remote-status { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); font-size: 13px; }
+.remote-status.on { background: #1d3a1f; color: #a6e3a1; }
+.remote-steps { text-align: left; margin: 10px 0; padding-left: 20px; }
+.remote-steps li { margin: 4px 0; }
+.remote-networks { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 8px; }
+.remote-networks button.on { border-color: var(--honey); color: var(--honey-2); }
 .karaoke-field { display: grid; gap: 6px; margin: 12px 0; }
 .karaoke-field input { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
 .karaoke-results { list-style: none; padding: 0; margin: 0; }

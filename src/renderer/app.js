@@ -2,6 +2,7 @@ import { Player } from "./player.js";
 import { VideoPlayer } from "./video-player.js";
 import { wireKaraokeSearch } from "./karaoke-search.js";
 import { syllableFill } from "./lyrics.js";
+import { createBluetoothRemote } from "./bluetooth-remote.js";
 
 const { searchSongs } = window.ZBSearch;
 const $ = (id) => document.getElementById(id);
@@ -140,6 +141,32 @@ function reserve(song) {
   if (!player.song) playNext();
 }
 
+function removeFromQueueByNumber(number) {
+  const index = state.queue.findIndex((s) => String(s.number) === String(number));
+  if (index === -1) return;
+  state.queue.splice(index, 1);
+  renderQueue();
+}
+
+/** Shared by the WiFi (IPC) and Bluetooth transports - both just hand it a {type, number}. */
+function applyRemoteAction(action) {
+  const song = state.byNumber.get(String(action.number));
+  if (!song) return;
+  if (action.type === "reserve") reserve(song);
+  else if (action.type === "remove") removeFromQueueByNumber(action.number);
+  else if (action.type === "singNow") { removeFromQueueByNumber(action.number); singNow(song); }
+}
+
+const bluetoothRemote = createBluetoothRemote({ getSongs: () => state.songs, onCommand: applyRemoteAction });
+
+/** Keeps a paired phone's reserve list and now-playing banner in sync with the desktop. */
+function pushRemoteState() {
+  const minimal = (s) => ({ number: s.number, title: s.title, artist: s.artist });
+  const payload = { queue: state.queue.map(minimal), nowPlaying: player.song ? minimal(player.song) : null };
+  window.zb.pushRemoteState?.(payload).catch(() => {});
+  if (bluetoothRemote.isConnected()) bluetoothRemote.sendState({ type: "state", ...payload }).catch(() => {});
+}
+
 function renderQueue() {
   $("queue-count").textContent = state.queue.length ? `(${state.queue.length})` : "";
   $("queue-empty").hidden = state.queue.length > 0;
@@ -163,6 +190,7 @@ function renderQueue() {
   );
   const next = state.queue[0];
   $("next-up").textContent = player.song?.mediaKind === "music-video" ? `Listening mode · ${state.queue.length} reserved song(s) waiting` : next ? `Next: ${next.number} · ${next.title}` : "Nothing reserved";
+  pushRemoteState();
 }
 
 function playNext() {
@@ -299,6 +327,7 @@ function leaveStage() {
   $("stage").hidden = true;
   $("home").hidden = false;
   $("search").focus();
+  pushRemoteState();
 }
 
 function stopSong() {
@@ -533,6 +562,62 @@ function wire() {
   window.zb.onSongPackStatus?.(showPackStatus);
   window.zb.getSongPackStatus?.().then(showPackStatus).catch(() => {});
   window.zb.onLibraryChanged?.(applyLibrary);
+  window.zb.onRemoteAction?.(applyRemoteAction);
+  function renderRemoteStatus(clientCount) {
+    $("remote-status").textContent = clientCount > 0 ? `✓ ${clientCount} phone${clientCount === 1 ? "" : "s"} connected` : "Waiting for a phone to connect…";
+    $("remote-status").className = `remote-status ${clientCount > 0 ? "on" : ""}`;
+  }
+  function showNetwork(network) {
+    $("remote-qr").src = network.qrDataUrl;
+    $("remote-url").textContent = network.url;
+  }
+  window.zb.onRemoteClients?.(renderRemoteStatus);
+  $("btn-remote").onclick = async () => {
+    $("remote").showModal();
+    $("remote-qr").removeAttribute("src");
+    $("remote-url").textContent = "Starting…";
+    $("remote-empty").hidden = true;
+    $("remote-networks").hidden = true;
+    try {
+      const info = await window.zb.getRemoteInfo();
+      const remoteNetworks = info?.networks ?? [];
+      renderRemoteStatus(info?.clientCount ?? 0);
+      if (!remoteNetworks.length) { $("remote-url").textContent = ""; $("remote-empty").hidden = false; return; }
+      showNetwork(remoteNetworks[0]);
+      if (remoteNetworks.length > 1) {
+        $("remote-networks").hidden = false;
+        $("remote-networks").replaceChildren(
+          ...remoteNetworks.map((network, i) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = i === 0 ? "ghost on" : "ghost";
+            button.textContent = `${network.name} (${network.address})`;
+            button.onclick = () => {
+              showNetwork(network);
+              $("remote-networks").querySelectorAll("button").forEach((b) => b.classList.remove("on"));
+              button.classList.add("on");
+            };
+            return button;
+          }),
+        );
+      }
+    } catch (error) {
+      $("remote-url").textContent = error.message;
+    }
+  };
+  $("btn-remote-bluetooth").onclick = async () => {
+    if (!navigator.bluetooth) return toast("Bluetooth isn't available in this app build.", 5000);
+    try {
+      $("btn-remote-bluetooth").disabled = true;
+      await bluetoothRemote.connect();
+      toast("Bluetooth connected · the phone can search and reserve without WiFi now.");
+      $("remote").close();
+    } catch (error) {
+      toast(error.message, 5000);
+    } finally {
+      $("btn-remote-bluetooth").disabled = false;
+    }
+  };
   $("btn-update-now").onclick = () => window.zb.installUpdate().catch((error) => toast(error.message, 5000));
   // Keep playback controls on the dashboard; only the lyrics go to the display.
   document.body.append(document.querySelector(".stage-bar"), $("mixer"));

@@ -1,7 +1,7 @@
 {
   "name": "zeenging-bee",
   "productName": "Zee-ing Bee",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Videoke at home: song numbers, a reserve list and lyrics that colour as you sing.",
   "main": "src/main/main.js",
   "type": "commonjs",
@@ -14,8 +14,8 @@
     "test": "node --test \"test/*.test.*\"",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",
-    "dist": "npm run fetch-soundfont && npm run make-demo-songs && electron-builder",
-    "dist:full": "npm run fetch-soundfont && npm run make-demo-songs && node scripts/prepare-full-build.cjs && electron-builder --config dist/electron-builder-full.json",
+    "dist": "npm run fetch-soundfont && npm run make-demo-songs && node scripts/copy-mobile-vendor.cjs && electron-builder",
+    "dist:full": "npm run fetch-soundfont && npm run make-demo-songs && node scripts/copy-mobile-vendor.cjs && node scripts/prepare-full-build.cjs && electron-builder --config dist/electron-builder-full.json",
     "publish:full": "npm run dist:full -- --publish always"
   },
   "build": {
@@ -83,7 +83,9 @@
     "@electron-internal/extract-zip": "^1.0.6",
     "electron-updater": "6.8.11",
     "ffmpeg-static": "5.3.0",
-    "spessasynth_lib": "4.3.14"
+    "qrcode": "^1.5.4",
+    "spessasynth_lib": "4.3.14",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "electron": "44.9.3",

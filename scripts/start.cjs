@@ -1,6 +1,8 @@
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 
+require("./copy-mobile-vendor.cjs");
+
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 const child = spawn(require("electron"), [path.resolve(__dirname, ".."), ...process.argv.slice(2)], {

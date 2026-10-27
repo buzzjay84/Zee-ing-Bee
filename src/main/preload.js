@@ -54,4 +54,16 @@ contextBridge.exposeInMainWorld("zb", {
     ipcRenderer.on("update:ready", listener);
     return () => ipcRenderer.removeListener("update:ready", listener);
   },
+  getRemoteInfo: () => ipcRenderer.invoke("remote:info"),
+  pushRemoteState: (state) => ipcRenderer.invoke("remote:state", state),
+  onRemoteAction: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on("remote:action", listener);
+    return () => ipcRenderer.removeListener("remote:action", listener);
+  },
+  onRemoteClients: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on("remote:clients", listener);
+    return () => ipcRenderer.removeListener("remote:clients", listener);
+  },
 });

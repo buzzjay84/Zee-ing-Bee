@@ -8,10 +8,15 @@ const { pipeline } = require("node:stream/promises");
 // launch, and unlock the library once a meaningful share has arrived, rather than making
 // people stare at an empty app for however long the full download takes. A "full" install
 // already has its packs locally and never needs this.
-// The packs live in a private GitHub release. PACKS_URL is a Cloudflare Worker (see
-// worker/) that answers each request with a short-lived download link, so the songs are
-// never publicly listed and no GitHub token ships inside the app.
-const PACKS_URL = process.env.ZB_PACKS_URL || "";
+// The packs live in a private Google Drive folder. PACKS_URL is a Cloudflare Worker (see
+// worker/) that reads it with its own service account and streams each file through, so
+// the songs are never publicly listed and no Drive credential ships inside the app.
+// A packaged app has no shell to read an env var from, so the deployed Worker's URL is
+// hardcoded here; ZB_PACKS_URL only overrides it for local testing.
+// TODO: replace with the real *.workers.dev URL once `npx wrangler deploy` (from
+// worker/) has run with PACKS_DRIVE_FOLDER_ID / GOOGLE_CLIENT_EMAIL / GOOGLE_PRIVATE_KEY
+// set - until then this placeholder makes downloads fail closed (retried, never crashes).
+const PACKS_URL = process.env.ZB_PACKS_URL || "https://zee-ing-bee-packs.PLACEHOLDER.workers.dev";
 const UNLOCK_FRACTION = 0.07;
 // A download only fails when it stalls, so large packs still finish on slow connections.
 const STALL_MS = 60000;

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Zee-ing Bee Remote</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<meta name="theme-color" content="#120d02">
+<link rel="stylesheet" href="styles.css">
+<script type="importmap">
+{
+  "imports": {
+    "spessasynth_lib": "./vendor/spessasynth_lib/index.js",
+    "spessasynth_core": "./vendor/spessasynth_core/index.js"
+  }
+}
+</script>
+<script src="./shared/search.js"></script>
+<script src="./shared/bluetooth.js"></script>
+<script type="module" src="app.js"></script>
+</head>
+<body>
+  <div id="toast" hidden></div>
+
+  <main id="home">
+    <header class="topbar">
+      <div class="brand"><img class="brand-logo" src="icon.png" alt="" onerror="this.hidden=true"><span>Zee-ing Bee Remote</span></div>
+      <p id="mode-banner" class="mode-banner">Checking for a desktop…</p>
+    </header>
+
+    <section class="search-section">
+      <input id="search" type="search" placeholder="Search by title, artist or number" autocomplete="off">
+      <p id="song-count" class="muted small"></p>
+      <ul id="results" class="song-list"></ul>
+    </section>
+
+    <section class="queue-section">
+      <h2>Reserved <span id="queue-count"></span></h2>
+      <p id="now-playing" class="muted small">Nothing playing</p>
+      <ul id="queue" class="queue-list"></ul>
+    </section>
+  </main>
+
+  <section id="stage" hidden>
+    <header class="stage-header">
+      <div class="stage-title" id="stage-title"></div>
+      <div class="stage-artist" id="stage-artist"></div>
+    </header>
+    <div class="lyrics">
+      <div class="line" id="slot-0"></div>
+      <div class="line next" id="slot-1"></div>
+    </div>
+    <div class="progress"><div id="progress-fill"></div></div>
+    <div class="stage-actions">
+      <button id="btn-pause" class="ghost">Pause</button>
+      <button id="btn-stop" class="danger">Stop</button>
+    </div>
+  </section>
+</body>
+</html>

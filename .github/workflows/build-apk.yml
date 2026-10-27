@@ -1,0 +1,51 @@
+name: Build mobile remote APK
+
+on:
+  push:
+    paths:
+      - "src/mobile-remote/**"
+      - "src/shared/search.js"
+      - "mobile-app/**"
+      - ".github/workflows/build-apk.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      # spessasynth_lib/spessasynth_core and the app icon get vendored into
+      # src/mobile-remote/ from here, the same way a local `npm start` does.
+      - name: Install root dependencies and vendor mobile assets
+        run: |
+          npm ci
+          node scripts/copy-mobile-vendor.cjs
+
+      - name: Install Capacitor dependencies and sync the Android project
+        working-directory: mobile-app
+        run: |
+          npm ci
+          npx cap sync android
+
+      - name: Build the debug APK
+        working-directory: mobile-app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zee-ing-bee-remote-debug-apk
+          path: mobile-app/android/app/build/outputs/apk/debug/app-debug.apk

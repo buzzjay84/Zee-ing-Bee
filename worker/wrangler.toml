@@ -3,10 +3,14 @@ main = "src/index.js"
 compatibility_date = "2026-10-01"
 
 [vars]
-# The private repo and release tag holding manifest.json and the song pack zips.
-PACKS_REPO = "OWNER/zee-ing-bee-songs"
-PACKS_TAG = "packs"
+# The private Google Drive folder holding manifest.json and the song pack zips.
+# Share this folder with GOOGLE_CLIENT_EMAIL (Viewer) so only this Worker can read it.
+PACKS_DRIVE_FOLDER_ID = "1QwyLLutdPC71cPPa0CcO_Sz5bn-mKVUD"
+# The service account's email. Not secret on its own - it has no access to anything
+# until the Drive folder above is explicitly shared with it.
+GOOGLE_CLIENT_EMAIL = "service-account@project.iam.gserviceaccount.com"
 
-# GITHUB_TOKEN is a secret, never stored here. Set it with:
-#   npx wrangler secret put GITHUB_TOKEN
-# Use a fine-grained token with read-only "Contents" access to the songs repo only.
+# GOOGLE_PRIVATE_KEY is a secret, never stored here. Set it with:
+#   npx wrangler secret put GOOGLE_PRIVATE_KEY
+# Paste the "private_key" field from the service account's JSON key, including the
+# -----BEGIN/END PRIVATE KEY----- lines.

@@ -16,6 +16,7 @@
     }
   </script>
   <script src="../shared/search.js"></script>
+  <script src="../shared/bluetooth.js"></script>
   <script type="module" src="app.js"></script>
 </head>
 <body>
@@ -30,6 +31,7 @@
         <button id="btn-display" class="ghost">Open display</button>
         <button id="btn-add-folder" class="ghost">＋ Add song folder</button>
         <button id="btn-songbook" class="ghost">Songbook (PDF)</button>
+        <button id="btn-remote" class="ghost">Remote</button>
         <button id="btn-settings" class="ghost">Settings</button>
       </div>
     </header>
@@ -184,6 +186,27 @@
       <label class="row">Sung colour <input type="color" id="lyric-color"></label>
 
       <div class="row end"><button value="close" class="primary">Done</button></div>
+    </form>
+  </dialog>
+
+  <!-- Phone remote -->
+  <dialog id="remote">
+    <form method="dialog">
+      <h2>Remote control</h2>
+      <p id="remote-status" class="remote-status"></p>
+      <ol class="remote-steps muted small">
+        <li>Make sure the phone is on the same WiFi (or hotspot) as this computer.</li>
+        <li>Scan this code with the phone's camera.</li>
+        <li>Tap the notification to open the remote.</li>
+      </ol>
+      <div id="remote-networks" class="remote-networks" hidden></div>
+      <img id="remote-qr" alt="Remote control QR code" width="220" height="220">
+      <p id="remote-url" class="muted small"></p>
+      <p id="remote-empty" class="muted small" hidden>No network found. Turn on a WiFi hotspot on either device (or plug in and enable USB tethering), then reopen this.</p>
+      <div class="row end">
+        <button type="button" id="btn-remote-bluetooth" class="ghost">Connect via Bluetooth instead</button>
+        <button value="close" class="primary">Done</button>
+      </div>
     </form>
   </dialog>
 </body>
