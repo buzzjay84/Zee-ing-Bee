@@ -371,6 +371,15 @@ function registerIpc() {
     if (event.sender === win.webContents) displayWindow?.hide();
   });
   ipcMain.handle("update:install", (event) => event.sender === win?.webContents ? updater?.install() ?? false : false);
+  ipcMain.handle("app:version", () => app.getVersion());
+  ipcMain.handle("update:check", async () => {
+    if (!updater) return { error: "Updates only run in an installed build, not when running from source." };
+    try {
+      return await updater.checkNow();
+    } catch (error) {
+      return { error: error.message };
+    }
+  });
   ipcMain.handle("library:get", () => publicState());
   ipcMain.handle("packs:status", () => packStatus);
   ipcMain.handle("remote:info", async () => {

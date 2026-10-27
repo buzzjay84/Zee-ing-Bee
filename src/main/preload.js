@@ -49,6 +49,8 @@ contextBridge.exposeInMainWorld("zb", {
   readFile: (file) => ipcRenderer.invoke("file:read", file),
   makeSongbook: () => ipcRenderer.invoke("songbook:pdf"),
   installUpdate: () => ipcRenderer.invoke("update:install"),
+  getVersion: () => ipcRenderer.invoke("app:version"),
+  checkForUpdates: () => ipcRenderer.invoke("update:check"),
   onUpdateReady: (callback) => {
     const listener = (_event, data) => callback(data);
     ipcRenderer.on("update:ready", listener);

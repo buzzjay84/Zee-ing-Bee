@@ -1,7 +1,7 @@
 {
   "name": "zeenging-bee",
   "productName": "Zee-ing Bee",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Videoke at home: song numbers, a reserve list and lyrics that colour as you sing.",
   "main": "src/main/main.js",
   "type": "commonjs",

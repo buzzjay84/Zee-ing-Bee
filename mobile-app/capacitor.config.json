@@ -1,6 +1,6 @@
 {
-  "appId": "com.zeengingbee.remote",
-  "appName": "Zee-ing Bee Remote",
+  "appId": "com.zeengingbee.mobile",
+  "appName": "Zee-ing Bee Mobile",
   "webDir": "../src/mobile-remote",
   "android": {
     "allowMixedContent": true

@@ -1,4 +1,4 @@
-name: Build mobile remote APK
+name: Build mobile APK
 
 on:
   push:
@@ -69,7 +69,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: zee-ing-bee-remote-debug-apk
+          name: zee-ing-bee-mobile-debug-apk
           path: mobile-app/android/app/build/outputs/apk/debug/app-debug.apk
 
       # The desktop installers land on this version's GitHub release (see installers.yml);
@@ -83,8 +83,8 @@ jobs:
         run: |
           TAG="v$(node -p "require('./package.json').version")"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            cp mobile-app/android/app/build/outputs/apk/debug/app-debug.apk "Zee-ing-Bee-Remote-$TAG.apk"
-            gh release upload "$TAG" "Zee-ing-Bee-Remote-$TAG.apk" --repo "$GITHUB_REPOSITORY" --clobber
+            cp mobile-app/android/app/build/outputs/apk/debug/app-debug.apk "Zee-ing-Bee-Mobile-$TAG.apk"
+            gh release upload "$TAG" "Zee-ing-Bee-Mobile-$TAG.apk" --repo "$GITHUB_REPOSITORY" --clobber
           else
             echo "No release for $TAG yet - the .apk stays as a workflow artifact until one exists."
           fi

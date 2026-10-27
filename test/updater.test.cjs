@@ -46,6 +46,27 @@ test("notifies once a download finishes, and install() only acts once ready", ()
   assert.equal(autoUpdater.quitAndInstall.mock.calls.length, 1);
 });
 
+test("checkNow() reports up to date when the feed has nothing newer", async () => {
+  const autoUpdater = fakeAutoUpdater();
+  autoUpdater.checkForUpdates = mock.fn(async () => ({ updateInfo: { version: "1.0.0" } }));
+  const updater = createUpdater({ app: { isPackaged: true, getVersion: () => "1.0.0" }, autoUpdater, log: { warn() {} } });
+  assert.deepEqual(await updater.checkNow(), { currentVersion: "1.0.0", latestVersion: "1.0.0", upToDate: true });
+});
+
+test("checkNow() reports a newer version when one is found", async () => {
+  const autoUpdater = fakeAutoUpdater();
+  autoUpdater.checkForUpdates = mock.fn(async () => ({ updateInfo: { version: "2.0.0" } }));
+  const updater = createUpdater({ app: { isPackaged: true, getVersion: () => "1.0.0" }, autoUpdater, log: { warn() {} } });
+  assert.deepEqual(await updater.checkNow(), { currentVersion: "1.0.0", latestVersion: "2.0.0", upToDate: false });
+});
+
+test("checkNow() rejects when the feed can't be reached, for the caller to handle", async () => {
+  const autoUpdater = fakeAutoUpdater();
+  autoUpdater.checkForUpdates = mock.fn(async () => { throw new Error("offline"); });
+  const updater = createUpdater({ app: { isPackaged: true, getVersion: () => "1.0.0" }, autoUpdater, log: { warn() {} } });
+  await assert.rejects(updater.checkNow(), /offline/);
+});
+
 test("a failed check is logged, not thrown", () => {
   const autoUpdater = fakeAutoUpdater();
   const warnings = [];

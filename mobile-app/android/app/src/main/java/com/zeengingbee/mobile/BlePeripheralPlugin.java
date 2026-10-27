@@ -1,4 +1,4 @@
-package com.zeengingbee.remote;
+package com.zeengingbee.mobile;
 
 import android.Manifest;
 import android.bluetooth.BluetoothAdapter;
@@ -69,63 +69,74 @@ public class BlePeripheralPlugin extends Plugin {
         doStartAdvertising(call);
     }
 
+    // Public, not private: Capacitor invokes @PermissionCallback methods by name via
+    // reflection, and a private method is a needless risk of that silently failing to
+    // fire - which would leave the JS side's startAdvertising() call hanging forever
+    // with no response, since nothing else ever resolves or rejects it.
     @PermissionCallback
-    private void startAdvertisingPermissionCallback(PluginCall call) {
+    public void startAdvertisingPermissionCallback(PluginCall call) {
         if (getPermissionState("bluetooth") == PermissionState.GRANTED) doStartAdvertising(call);
         else call.reject("Bluetooth permission was denied.");
     }
 
+    // Wrapped in try/catch so any unexpected failure here (a permission race, a device
+    // quirk) always resolves or rejects `call` rather than leaving the JS side waiting
+    // forever - mode.js also has its own timeout as a second line of defense.
     private void doStartAdvertising(PluginCall call) {
-        if (gattServer != null) {
+        try {
+            if (gattServer != null) {
+                call.resolve();
+                return;
+            }
+            BluetoothManager manager = (BluetoothManager) getContext().getSystemService(Context.BLUETOOTH_SERVICE);
+            BluetoothAdapter adapter = manager == null ? null : manager.getAdapter();
+            if (adapter == null || !adapter.isEnabled()) {
+                call.reject("Bluetooth is turned off on this phone.");
+                return;
+            }
+            advertiser = adapter.getBluetoothLeAdvertiser();
+            if (advertiser == null) {
+                call.reject("This phone can't advertise over Bluetooth LE.");
+                return;
+            }
+
+            BluetoothGattService service = new BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY);
+
+            commandsCharacteristic = new BluetoothGattCharacteristic(
+                COMMANDS_CHARACTERISTIC_UUID,
+                BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+                BluetoothGattCharacteristic.PERMISSION_READ
+            );
+            commandsCharacteristic.addDescriptor(
+                new BluetoothGattDescriptor(CCCD_UUID, BluetoothGattDescriptor.PERMISSION_READ | BluetoothGattDescriptor.PERMISSION_WRITE)
+            );
+            service.addCharacteristic(commandsCharacteristic);
+
+            BluetoothGattCharacteristic stateCharacteristic = new BluetoothGattCharacteristic(
+                STATE_CHARACTERISTIC_UUID,
+                BluetoothGattCharacteristic.PROPERTY_WRITE,
+                BluetoothGattCharacteristic.PERMISSION_WRITE
+            );
+            service.addCharacteristic(stateCharacteristic);
+
+            gattServer = manager.openGattServer(getContext(), gattServerCallback);
+            if (gattServer == null) {
+                call.reject("Could not open a Bluetooth GATT server.");
+                return;
+            }
+            gattServer.addService(service);
+
+            AdvertiseSettings settings = new AdvertiseSettings.Builder()
+                .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+                .setConnectable(true)
+                .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+                .build();
+            AdvertiseData data = new AdvertiseData.Builder().addServiceUuid(new ParcelUuid(SERVICE_UUID)).build();
+            advertiser.startAdvertising(settings, data, advertiseCallback);
             call.resolve();
-            return;
+        } catch (Exception error) {
+            call.reject("Could not start Bluetooth advertising: " + error.getMessage());
         }
-        BluetoothManager manager = (BluetoothManager) getContext().getSystemService(Context.BLUETOOTH_SERVICE);
-        BluetoothAdapter adapter = manager == null ? null : manager.getAdapter();
-        if (adapter == null || !adapter.isEnabled()) {
-            call.reject("Bluetooth is turned off on this phone.");
-            return;
-        }
-        advertiser = adapter.getBluetoothLeAdvertiser();
-        if (advertiser == null) {
-            call.reject("This phone can't advertise over Bluetooth LE.");
-            return;
-        }
-
-        BluetoothGattService service = new BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY);
-
-        commandsCharacteristic = new BluetoothGattCharacteristic(
-            COMMANDS_CHARACTERISTIC_UUID,
-            BluetoothGattCharacteristic.PROPERTY_NOTIFY,
-            BluetoothGattCharacteristic.PERMISSION_READ
-        );
-        commandsCharacteristic.addDescriptor(
-            new BluetoothGattDescriptor(CCCD_UUID, BluetoothGattDescriptor.PERMISSION_READ | BluetoothGattDescriptor.PERMISSION_WRITE)
-        );
-        service.addCharacteristic(commandsCharacteristic);
-
-        BluetoothGattCharacteristic stateCharacteristic = new BluetoothGattCharacteristic(
-            STATE_CHARACTERISTIC_UUID,
-            BluetoothGattCharacteristic.PROPERTY_WRITE,
-            BluetoothGattCharacteristic.PERMISSION_WRITE
-        );
-        service.addCharacteristic(stateCharacteristic);
-
-        gattServer = manager.openGattServer(getContext(), gattServerCallback);
-        if (gattServer == null) {
-            call.reject("Could not open a Bluetooth GATT server.");
-            return;
-        }
-        gattServer.addService(service);
-
-        AdvertiseSettings settings = new AdvertiseSettings.Builder()
-            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-            .setConnectable(true)
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
-            .build();
-        AdvertiseData data = new AdvertiseData.Builder().addServiceUuid(new ParcelUuid(SERVICE_UUID)).build();
-        advertiser.startAdvertising(settings, data, advertiseCallback);
-        call.resolve();
     }
 
     @PluginMethod

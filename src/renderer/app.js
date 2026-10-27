@@ -554,6 +554,14 @@ function wire() {
     $("update-banner").hidden = false;
   });
   $("btn-update-later").onclick = () => { $("update-banner").hidden = true; };
+  window.zb.getVersion?.().then((v) => { $("app-version").textContent = `Version ${v}`; }).catch(() => {});
+  $("btn-check-updates").onclick = async () => {
+    $("update-check-status").textContent = "Checking…";
+    const result = await window.zb.checkForUpdates();
+    if (result.error) $("update-check-status").textContent = result.error;
+    else if (result.upToDate) $("update-check-status").textContent = `You're up to date (v${result.currentVersion}).`;
+    else $("update-check-status").textContent = `Update ${result.latestVersion} found — downloading in the background…`;
+  };
   // App-only installs keep downloading song packs after opening; new songs appear as each pack lands.
   const showPackStatus = ({ state: status, percent }) => {
     $("packs-banner").hidden = status !== "downloading" && status !== "retrying";

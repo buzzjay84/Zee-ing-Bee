@@ -1,3 +1,5 @@
+<img src="src/assets/branding/zee-ing-bee-logo.png" alt="Zee-ing Bee logo" width="120">
+
 # Zee-ing Bee 🐝
 
 Videoke at home, for Windows and macOS. Punch in a song number, sing to lyrics that colour as you go, and line up the next singer.

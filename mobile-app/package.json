@@ -1,5 +1,5 @@
 {
-  "name": "zee-ing-bee-remote",
+  "name": "zee-ing-bee-mobile",
   "private": true,
   "version": "1.0.0",
   "scripts": {
@@ -10,6 +10,7 @@
     "@capacitor/core": "8.5.3"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "8.5.3"
   }
 }

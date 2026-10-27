@@ -20,6 +20,12 @@ function createUpdater({ app, autoUpdater, notify = () => {}, log = console } = 
   function check() {
     autoUpdater.checkForUpdates().catch((error) => log.warn("Update check failed:", error.message));
   }
+  /** For a person-initiated "Check for updates" click: reports the outcome instead of just logging it. */
+  async function checkNow() {
+    const result = await autoUpdater.checkForUpdates();
+    const latestVersion = result?.updateInfo?.version ?? null;
+    return { currentVersion: app.getVersion(), latestVersion, upToDate: !latestVersion || latestVersion === app.getVersion() };
+  }
   function start() {
     // Outside a packaged build there is no app-update.yml, and checking would just error.
     if (!app.isPackaged) return;
@@ -36,7 +42,7 @@ function createUpdater({ app, autoUpdater, notify = () => {}, log = console } = 
     autoUpdater.quitAndInstall();
     return true;
   }
-  return { start, stop, install, get ready() { return ready; } };
+  return { start, stop, install, checkNow, get ready() { return ready; } };
 }
 
 module.exports = { createUpdater };

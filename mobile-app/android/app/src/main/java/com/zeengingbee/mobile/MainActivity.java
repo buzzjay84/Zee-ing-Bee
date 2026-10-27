@@ -1,4 +1,4 @@
-package com.zeengingbee.remote;
+package com.zeengingbee.mobile;
 
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
