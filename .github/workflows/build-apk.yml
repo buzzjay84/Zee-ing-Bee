@@ -7,6 +7,13 @@ on:
       - "src/shared/search.js"
       - "mobile-app/**"
       - ".github/workflows/build-apk.yml"
+  # Also runs right after "Build installers" finishes, so a version bump's APK lands on
+  # the release it just cut instead of racing it (the installer build/release job takes
+  # much longer than this one, so without this a push that bumps the version would
+  # usually finish the APK build before the release even exists to attach it to).
+  workflow_run:
+    workflows: ["Build installers"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -14,9 +21,12 @@ permissions:
 
 jobs:
   build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
