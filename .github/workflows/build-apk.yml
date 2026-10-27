@@ -30,7 +30,8 @@ jobs:
       # package and fails outright, even though everything else about it works fine.
       - name: Install the required Android SDK platform/build-tools
         run: |
-          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 2 -name sdkmanager | sort -V | tail -1)
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 3 -name sdkmanager -type f | sort -V | tail -1)
+          echo "Using sdkmanager at: $SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
