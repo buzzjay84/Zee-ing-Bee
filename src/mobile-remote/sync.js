@@ -91,5 +91,18 @@ export function createSync() {
     return name && data ? { name, data } : null;
   }
 
-  return { startBackgroundSync, downloadVideoForOffline, getCatalog, getSongBytes, getSoundBank };
+  // Written by the Bluetooth path (bluetooth.js's on-demand fetch), not just WiFi sync -
+  // once a song arrives over Bluetooth it's cached exactly like a WiFi-synced one, so
+  // replaying it later needs no desktop at all, over any transport.
+  async function cacheSongBytes(number, bytes) {
+    await idbSet(await dbPromise, "songs", Number(number), bytes);
+  }
+
+  async function cacheSoundBank(name, data) {
+    const db = await dbPromise;
+    await idbSet(db, "meta", "soundbank-name", name);
+    await idbSet(db, "meta", "soundbank-data", data);
+  }
+
+  return { startBackgroundSync, downloadVideoForOffline, getCatalog, getSongBytes, getSoundBank, cacheSongBytes, cacheSoundBank };
 }

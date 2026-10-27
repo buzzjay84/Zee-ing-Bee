@@ -3,6 +3,7 @@ import { VideoPlayer } from "./video-player.js";
 import { syllableFill } from "./lyrics.js";
 import { createModeWatcher } from "./mode.js";
 import { createSync } from "./sync.js";
+import { fromBase64 } from "./ble.js";
 
 const { searchSongs } = window.ZBSearch;
 const $ = (id) => document.getElementById(id);
@@ -34,9 +35,14 @@ function toast(text, ms = 2500) {
   toast.timer = setTimeout(() => (el.hidden = true), ms);
 }
 
+function hideToast() {
+  clearTimeout(toast.timer);
+  $("toast").hidden = true;
+}
+
 function renderStatus() {
   const banner = $("mode-banner");
-  banner.textContent = { remote: "Connected to desktop", bluetooth: "Connected via Bluetooth (search only, no offline songs)", standalone: "No desktop found - playing on this phone" }[state.mode] ?? "Checking for a desktop…";
+  banner.textContent = { remote: "Connected to desktop", bluetooth: "Connected via Bluetooth - this phone sings", standalone: "No desktop found - playing on this phone" }[state.mode] ?? "Checking for a desktop…";
   banner.className = `mode-banner ${state.mode ?? ""}`;
 }
 
@@ -52,8 +58,8 @@ function renderSongs() {
       li.querySelector(".title").textContent = s.title;
       li.querySelector(".artist").textContent = [s.artist, s.category].filter(Boolean).join(" · ");
       const button = li.querySelector("button");
-      button.textContent = state.mode === "standalone" ? "Sing" : "Reserve";
-      button.onclick = () => (state.mode === "standalone" ? reserveStandalone(s) : reserveRemote(s));
+      button.textContent = state.mode === "remote" ? "Reserve" : "Sing";
+      button.onclick = () => (state.mode === "remote" ? reserveRemote(s) : reserveLocal(s));
       return li;
     }),
   );
@@ -64,10 +70,10 @@ function renderQueue() {
   $("queue").replaceChildren(
     ...state.queue.map((s, i) => {
       const li = document.createElement("li");
-      li.innerHTML = `<span class="num"></span><span class="t"></span>${state.mode === "standalone" ? '<button title="Remove">✕</button>' : ""}`;
+      li.innerHTML = `<span class="num"></span><span class="t"></span>${state.mode !== "remote" ? '<button title="Remove">✕</button>' : ""}`;
       li.querySelector(".num").textContent = s.number;
       li.querySelector(".t").textContent = s.title;
-      if (state.mode === "standalone") {
+      if (state.mode !== "remote") {
         li.querySelector("button").onclick = () => {
           state.queue.splice(i, 1);
           renderQueue();
@@ -87,11 +93,10 @@ $("search").addEventListener("input", (event) => {
   bleSearchTimer = setTimeout(() => modeWatcher.bleTransport.send({ type: "search", query: state.query }), 400);
 });
 
-// ---------- Remote mode (WiFi or Bluetooth): search/reserve only, playback happens on the desktop ----------
+// ---------- Remote mode (WiFi): search/reserve only, playback happens on the desktop ----------
 
 function reserveRemote(song) {
-  if (state.mode === "bluetooth") modeWatcher.bleTransport.send({ type: "reserve", number: song.number });
-  else state.ws?.send(JSON.stringify({ type: "reserve", number: song.number }));
+  state.ws?.send(JSON.stringify({ type: "reserve", number: song.number }));
   toast(`Reserved ${song.number} · ${song.title}`);
 }
 
@@ -121,7 +126,40 @@ async function enterRemoteMode() {
   sync.startBackgroundSync(state.pairing, songs).catch(() => {});
 }
 
-// ---------- Bluetooth mode: same search/reserve idea as Remote, but desktop-driven search ----------
+// ---------- Bluetooth mode: desktop-driven search, but the phone sings locally, fetching
+// whatever it doesn't already have cached one song at a time (slow - see ble.js) ----------
+
+let pendingSongRequest = null;
+let pendingSoundbankRequest = null;
+
+function requestSongOverBluetooth(number) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingSongRequest = null;
+      reject(new Error("Timed out waiting for the song over Bluetooth."));
+    }, 45000);
+    pendingSongRequest = {
+      number,
+      resolve: (bytes) => { clearTimeout(timer); resolve(bytes); },
+      reject: (error) => { clearTimeout(timer); reject(error); },
+    };
+    modeWatcher.bleTransport.send({ type: "getSong", number });
+  });
+}
+
+function requestSoundBankOverBluetooth() {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingSoundbankRequest = null;
+      reject(new Error("Timed out waiting for the sound bank over Bluetooth."));
+    }, 45000);
+    pendingSoundbankRequest = {
+      resolve: (bank) => { clearTimeout(timer); resolve(bank); },
+      reject: (error) => { clearTimeout(timer); reject(error); },
+    };
+    modeWatcher.bleTransport.send({ type: "getSoundbank" });
+  });
+}
 
 function enterBluetoothMode() {
   state.mode = "bluetooth";
@@ -130,6 +168,8 @@ function enterBluetoothMode() {
   state.bleResults = [];
   state.query = "";
   $("search").value = "";
+  state.queue = [];
+  state.nowPlaying = null;
   renderStatus();
   renderSongs();
   renderQueue();
@@ -139,28 +179,37 @@ function handleBleMessage(message) {
   if (message.type === "searchResults") {
     state.bleResults = message.songs;
     renderSongs();
-  } else if (message.type === "state") {
-    state.queue = message.queue;
-    state.nowPlaying = message.nowPlaying;
-    renderQueue();
+  } else if (message.type === "songData" && pendingSongRequest?.number === message.number) {
+    pendingSongRequest.resolve(fromBase64(message.data));
+    pendingSongRequest = null;
+  } else if (message.type === "songNotFound" && pendingSongRequest?.number === message.number) {
+    pendingSongRequest.reject(new Error("The desktop couldn't send that song over Bluetooth."));
+    pendingSongRequest = null;
+  } else if (message.type === "soundbankData" && pendingSoundbankRequest) {
+    pendingSoundbankRequest.resolve({ name: message.name, data: fromBase64(message.data) });
+    pendingSoundbankRequest = null;
+  } else if (message.type === "soundbankNotFound" && pendingSoundbankRequest) {
+    pendingSoundbankRequest.reject(new Error("No sound bank is available on the desktop."));
+    pendingSoundbankRequest = null;
   }
 }
 
-// ---------- Standalone mode: this phone plays songs itself ----------
+// ---------- Local playback: Standalone mode and Bluetooth mode both sing on this phone,
+// they just differ in whether a missing song can be fetched on demand first ----------
 
-function reserveStandalone(song) {
+function reserveLocal(song) {
   state.queue.push(song);
   renderQueue();
-  if (!player.song) playNextStandalone();
+  if (!player.song) playNextLocal();
 }
 
-async function playNextStandalone() {
+async function playNextLocal() {
   const next = state.queue.shift();
   renderQueue();
   if (!next) return leaveStage();
-  await singStandalone(next).catch((error) => {
-    toast(error.message);
-    playNextStandalone();
+  await singLocal(next).catch((error) => {
+    toast(error.message, 4000);
+    playNextLocal();
   });
 }
 
@@ -179,17 +228,29 @@ function leaveStage() {
   $("home").hidden = false;
 }
 
-async function singStandalone(song) {
+async function singLocal(song) {
   const isVideo = song.mediaKind === "video";
-  const bytes = await sync.getSongBytes(song.number, song.mediaKind);
-  if (!bytes) throw new Error("This song hasn't been downloaded for offline play yet.");
+  let bytes = await sync.getSongBytes(song.number, song.mediaKind);
+  if (!bytes && state.mode === "bluetooth" && !isVideo) {
+    toast(`Fetching "${song.title}" over Bluetooth… this can take a minute.`, 45000);
+    bytes = await requestSongOverBluetooth(song.number);
+    await sync.cacheSongBytes(song.number, bytes);
+    hideToast();
+  }
+  if (!bytes) throw new Error(isVideo ? "This video hasn't been saved for offline play." : "This song hasn't been downloaded for offline play yet.");
   enterStage(song);
   state.nowPlaying = song;
   if (isVideo) {
     player = videoPlayer;
     await player.play(song, URL.createObjectURL(new Blob([bytes])));
   } else {
-    const bank = await sync.getSoundBank();
+    let bank = await sync.getSoundBank();
+    if (!bank && state.mode === "bluetooth") {
+      toast("Fetching the sound bank over Bluetooth… this can take a minute.", 45000);
+      bank = await requestSoundBankOverBluetooth();
+      await sync.cacheSoundBank(bank.name, bank.data);
+      hideToast();
+    }
     if (!bank) throw new Error("No sound bank has synced from a desktop yet.");
     midiReady ??= midiPlayer.init();
     await midiReady;
@@ -211,11 +272,11 @@ async function enterStandaloneMode() {
   renderQueue();
 }
 
-midiPlayer.onEnded = () => playNextStandalone();
-videoPlayer.onEnded = () => playNextStandalone();
+midiPlayer.onEnded = () => playNextLocal();
+videoPlayer.onEnded = () => playNextLocal();
 videoPlayer.onError = (error) => {
   toast(error.message);
-  playNextStandalone();
+  playNextLocal();
 };
 
 $("btn-stop").onclick = () => leaveStage();
@@ -224,7 +285,7 @@ $("btn-pause").onclick = () => {
   $("btn-pause").textContent = player.paused ? "Resume" : "Pause";
 };
 
-// ---------- Lyrics (standalone playback only - remote mode never sings locally) ----------
+// ---------- Lyrics (Standalone and Bluetooth modes only - WiFi Remote mode never sings locally) ----------
 
 const slots = [0, 1].map((n) => ({ el: $(`slot-${n}`), index: -2, spans: [] }));
 
@@ -272,7 +333,7 @@ function renderLyrics(t) {
 }
 
 setInterval(() => {
-  if (state.mode !== "standalone" || !player.song) return;
+  if ((state.mode !== "standalone" && state.mode !== "bluetooth") || !player.song) return;
   const t = player.time;
   renderLyrics(t);
   const dur = player.duration;

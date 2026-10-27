@@ -7,13 +7,13 @@
 // there and this transport is simply never offered.
 const BT = window.ZBBluetooth;
 
-function toBase64(bytes) {
+export function toBase64(bytes) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
 }
 
-function fromBase64(base64) {
+export function fromBase64(base64) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);

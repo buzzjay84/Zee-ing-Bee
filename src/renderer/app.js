@@ -157,7 +157,7 @@ function applyRemoteAction(action) {
   else if (action.type === "singNow") { removeFromQueueByNumber(action.number); singNow(song); }
 }
 
-const bluetoothRemote = createBluetoothRemote({ getSongs: () => state.songs, onCommand: applyRemoteAction });
+const bluetoothRemote = createBluetoothRemote({ getSongs: () => state.songs, getSoundBank: () => currentSoundBank(), onCommand: applyRemoteAction });
 
 /** Keeps a paired phone's reserve list and now-playing banner in sync with the desktop. */
 function pushRemoteState() {
