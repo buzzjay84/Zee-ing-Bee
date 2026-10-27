@@ -24,13 +24,19 @@ export function createBleTransport({ onMessage, onConnectionChange }) {
   const plugin = window.Capacitor?.Plugins?.BlePeripheral;
   let reassemble = BT.createReassembler();
   let connected = false;
+  let advertising = false;
+  let listenersAttached = false;
 
   function available() {
     return Boolean(plugin);
   }
 
-  async function start() {
-    if (!plugin) return;
+  // mode.js calls start() on every recheck while WiFi is down (every ~20s) - without this
+  // guard each call would re-register all three listeners, so the same event would fire
+  // onMessage/onConnectionChange multiple times over (doubling, tripling, ...).
+  function attachListenersOnce() {
+    if (listenersAttached) return;
+    listenersAttached = true;
     plugin.addListener("stateWrite", ({ data }) => {
       const message = reassemble(fromBase64(data));
       if (message) onMessage(message);
@@ -44,11 +50,19 @@ export function createBleTransport({ onMessage, onConnectionChange }) {
       reassemble = BT.createReassembler();
       onConnectionChange(false);
     });
+  }
+
+  async function start() {
+    if (!plugin || advertising) return;
+    attachListenersOnce();
+    advertising = true;
     await plugin.startAdvertising();
   }
 
   async function stop() {
-    await plugin?.stopAdvertising().catch(() => {});
+    if (!plugin || !advertising) return;
+    advertising = false;
+    await plugin.stopAdvertising().catch(() => {});
   }
 
   async function send(message) {

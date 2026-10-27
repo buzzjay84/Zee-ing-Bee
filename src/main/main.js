@@ -15,7 +15,6 @@ const { createUpdater } = require("./updater");
 const { createPackDownloader, UNLOCK_FRACTION } = require("./pack-downloader");
 const { createRemoteServer } = require("./remote-server");
 const { searchSongs } = require("../shared/search");
-const { DEVICE_NAME: BLUETOOTH_DEVICE_NAME } = require("../shared/bluetooth");
 const qrcode = require("qrcode");
 
 const APP_NAME = "Zee-ing Bee";
@@ -471,12 +470,13 @@ function createWindow() {
   win.loadURL(`app://bundle/src/renderer/index.html${process.env.ZB_SMOKE ? "?smoke" : ""}`);
   blockSmokeNetwork(win.webContents.session);
   // Electron intercepts Web Bluetooth's device picker itself; auto-pick the phone
-  // (there's only ever one match, since requestDevice() already filters by service UUID)
-  // instead of showing an OS-level chooser - this is what makes reconnects silent.
+  // (there's only ever one match, since requestDevice() already filters by service UUID
+  // and the phone's advertisement carries no device name to tell matches apart by -
+  // see BlePeripheralPlugin.java) instead of showing an OS-level chooser - this is what
+  // makes reconnects silent.
   win.webContents.on("select-bluetooth-device", (event, deviceList, callback) => {
     event.preventDefault();
-    const device = deviceList.find((d) => d.deviceName === BLUETOOTH_DEVICE_NAME) ?? deviceList[0];
-    callback(device?.deviceId ?? "");
+    callback(deviceList[0]?.deviceId ?? "");
   });
   win.on("closed", () => { if (displayWindow && !displayWindow.isDestroyed()) displayWindow.close(); });
   if (process.env.ZB_SMOKE) runSmokeTest();

@@ -38,8 +38,12 @@ export function createSync() {
   const dbPromise = openDb();
   let syncing = false;
 
-  /** Opportunistic background caching while a desktop is reachable (Remote mode). */
-  async function startBackgroundSync(pairing, songs) {
+  /**
+   * Opportunistic background caching while a desktop is reachable (Remote mode). Runs
+   * silently unless `onProgress({done, total})` is given - without it, there's no way
+   * for the person to tell this is happening at all, or when it's safe to walk away.
+   */
+  async function startBackgroundSync(pairing, songs, onProgress = () => {}) {
     const db = await dbPromise;
     await idbSet(db, "meta", "catalog", songs);
     if (syncing) return;
@@ -55,11 +59,18 @@ export function createSync() {
       }
       // MIDI songs are tiny, so the whole catalog is prefetched; videos are opt-in (see
       // downloadVideoForOffline) since they can be large.
-      for (const song of songs) {
-        if (song.mediaKind && song.mediaKind !== "midi") continue;
-        if (await idbGet(db, "songs", song.number)) continue;
+      const eligible = songs.filter((song) => !song.mediaKind || song.mediaKind === "midi");
+      let done = 0;
+      onProgress({ done, total: eligible.length });
+      for (const song of eligible) {
+        if (await idbGet(db, "songs", song.number)) {
+          done++;
+          continue;
+        }
         const response = await fetch(`${pairing.origin}/api/song/${song.number}/midi?token=${pairing.token}`);
         if (response.ok) await idbSet(db, "songs", song.number, await response.arrayBuffer());
+        done++;
+        onProgress({ done, total: eligible.length });
       }
     } catch {
       // Best-effort: Standalone mode just has less cached if this fails partway through.

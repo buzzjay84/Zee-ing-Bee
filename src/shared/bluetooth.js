@@ -52,8 +52,6 @@
     COMMANDS_CHARACTERISTIC_UUID: "7b1f5a11-4b8e-4e1a-9c3d-6a2f8e0c9d41",
     // Central -> peripheral (write): desktop-pushed state/search results.
     STATE_CHARACTERISTIC_UUID: "7b1f5a12-4b8e-4e1a-9c3d-6a2f8e0c9d41",
-    // Advertised local name, so the desktop can show something readable while scanning.
-    DEVICE_NAME: "Zee-ing Bee Remote",
     CHUNK_PAYLOAD_BYTES,
     FINAL_BIT,
     encodeChunks,

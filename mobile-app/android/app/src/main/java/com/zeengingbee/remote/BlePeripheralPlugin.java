@@ -49,12 +49,16 @@ public class BlePeripheralPlugin extends Plugin {
     private static final UUID COMMANDS_CHARACTERISTIC_UUID = UUID.fromString("7b1f5a11-4b8e-4e1a-9c3d-6a2f8e0c9d41");
     private static final UUID STATE_CHARACTERISTIC_UUID = UUID.fromString("7b1f5a12-4b8e-4e1a-9c3d-6a2f8e0c9d41");
     private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
-    private static final String DEVICE_NAME = "Zee-ing Bee Remote";
 
     private BluetoothGattServer gattServer;
     private BluetoothLeAdvertiser advertiser;
     private BluetoothDevice connectedCentral;
     private BluetoothGattCharacteristic commandsCharacteristic;
+    // A legacy BLE advertisement packet is capped at 31 bytes. The 128-bit service UUID
+    // alone already uses 18 of them, so the advertisement deliberately carries nothing
+    // else (no device name) - a long phone name would otherwise push it over the limit
+    // and make startAdvertising() fail outright. Matching happens by service UUID only.
+    private PluginCall pendingNotifyCall;
 
     @PluginMethod
     public void startAdvertising(PluginCall call) {
@@ -114,13 +118,12 @@ public class BlePeripheralPlugin extends Plugin {
         }
         gattServer.addService(service);
 
-        adapter.setName(DEVICE_NAME);
         AdvertiseSettings settings = new AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setConnectable(true)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
             .build();
-        AdvertiseData data = new AdvertiseData.Builder().addServiceUuid(new ParcelUuid(SERVICE_UUID)).setIncludeDeviceName(true).build();
+        AdvertiseData data = new AdvertiseData.Builder().addServiceUuid(new ParcelUuid(SERVICE_UUID)).build();
         advertiser.startAdvertising(settings, data, advertiseCallback);
         call.resolve();
     }
@@ -133,10 +136,22 @@ public class BlePeripheralPlugin extends Plugin {
         advertiser = null;
         connectedCentral = null;
         commandsCharacteristic = null;
+        if (pendingNotifyCall != null) {
+            pendingNotifyCall.reject("Bluetooth advertising stopped.");
+            pendingNotifyCall = null;
+        }
         call.resolve();
     }
 
-    /** One raw GATT notify carrying a single chunk (see createReassembler() in bluetooth.js). */
+    /**
+     * One raw GATT notify carrying a single chunk (see createReassembler() in
+     * bluetooth.js). A BLE connection allows only one outstanding notification at a time -
+     * calling notifyCharacteristicChanged() again before the previous one's
+     * onNotificationSent callback fires silently drops it at the stack level. The call
+     * only resolves once that callback confirms this notification actually went out, so
+     * the JS side's sequential `for (chunk of chunks) await notify(chunk)` loop can't
+     * outrun the radio and corrupt a multi-chunk message.
+     */
     @PluginMethod
     public void notify(PluginCall call) {
         String data = call.getString("data");
@@ -144,9 +159,17 @@ public class BlePeripheralPlugin extends Plugin {
             call.reject("No desktop is connected over Bluetooth right now.");
             return;
         }
+        if (pendingNotifyCall != null) {
+            call.reject("Another notification is still being sent.");
+            return;
+        }
         commandsCharacteristic.setValue(Base64.decode(data, Base64.NO_WRAP));
-        gattServer.notifyCharacteristicChanged(connectedCentral, commandsCharacteristic, false);
-        call.resolve();
+        pendingNotifyCall = call;
+        boolean started = gattServer.notifyCharacteristicChanged(connectedCentral, commandsCharacteristic, false);
+        if (!started) {
+            pendingNotifyCall = null;
+            call.reject("Could not send the Bluetooth notification.");
+        }
     }
 
     private final AdvertiseCallback advertiseCallback = new AdvertiseCallback() {
@@ -165,8 +188,21 @@ public class BlePeripheralPlugin extends Plugin {
                 notifyListeners("centralConnected", new JSObject());
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 connectedCentral = null;
+                if (pendingNotifyCall != null) {
+                    pendingNotifyCall.reject("The desktop disconnected while a notification was in flight.");
+                    pendingNotifyCall = null;
+                }
                 notifyListeners("centralDisconnected", new JSObject());
             }
+        }
+
+        @Override
+        public void onNotificationSent(BluetoothDevice device, int status) {
+            if (pendingNotifyCall == null) return;
+            PluginCall call = pendingNotifyCall;
+            pendingNotifyCall = null;
+            if (status == BluetoothGatt.GATT_SUCCESS) call.resolve();
+            else call.reject("Bluetooth notification failed with status " + status);
         }
 
         @Override

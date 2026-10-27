@@ -1,4 +1,4 @@
-# Zee-ing Bee v1.0.2
+# Zee-ing Bee v1.0.3
 
 ## Downloads
 
@@ -6,14 +6,15 @@
 - **macOS — Apple Silicon:** arm64 `.dmg` for M-series Macs.
 - **macOS — Intel:** x64 `.dmg` for Intel Macs.
 - SHA-256 checksum files are included alongside the installers.
-- **Android remote:** built separately from this repo's mobile companion app — see the project's GitHub Actions artifacts for the `.apk`.
+- **Android remote:** `Zee-ing-Bee-Remote-v1.0.3.apk` on this release — sideload it (phone needs "install from unknown sources" allowed).
 
 ## New
 
-- **Phone remote control.** A new "Remote" button opens a QR code — scan it with a phone on the same WiFi to search the song catalog and reserve songs from across the room, synced live to the desktop's queue.
-- **Bluetooth fallback pairing.** If there's no WiFi (not even a hotspot), the Remote dialog can connect directly over Bluetooth instead — search and reserve still work, with full catalog browsing and offline song sync reserved for WiFi.
-- **Standalone phone playback.** The companion app can also sing songs on its own, from content it previously synced while connected to a desktop, for when no desktop is around at all.
+- **Bluetooth mode now sings on the phone.** Reserving a song over Bluetooth now queues it on the phone itself and plays it there (like Standalone mode), fetching the song and sound bank from the desktop on demand the first time each is needed, instead of only remote-controlling the desktop's queue.
+- **Visible download progress.** The phone's background sync (pulling the whole catalog for offline play once connected over WiFi) now shows a "Downloading songs for offline play… 45/212" banner instead of running silently with no feedback.
 
 ## Fixed
 
-- App-only installs (no bundled song packs) now actually fetch their songs in the background — previously they never did, because nothing pointed the downloader at a real server.
+- The phone's Bluetooth listeners were being re-registered every ~20 seconds while WiFi was unreachable, causing duplicate event handling the longer it searched.
+- A Bluetooth notification could be sent again before the previous one finished transmitting, which the radio silently drops — multi-chunk Bluetooth messages could arrive corrupted. Sends are now properly serialized.
+- The phone's Bluetooth advertisement included the device's system name, which could overflow the 31-byte legacy advertisement limit (if the name was long enough) and make advertising fail outright; it also renamed the phone's Bluetooth adapter as a side effect. Advertising now matches by service ID only.

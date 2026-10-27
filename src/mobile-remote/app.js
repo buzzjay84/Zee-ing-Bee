@@ -90,7 +90,7 @@ $("search").addEventListener("input", (event) => {
   state.query = event.target.value;
   if (state.mode !== "bluetooth") return renderSongs();
   clearTimeout(bleSearchTimer);
-  bleSearchTimer = setTimeout(() => modeWatcher.bleTransport.send({ type: "search", query: state.query }), 400);
+  bleSearchTimer = setTimeout(() => modeWatcher.bleTransport.send({ type: "search", query: state.query }).catch(() => {}), 400);
 });
 
 // ---------- Remote mode (WiFi): search/reserve only, playback happens on the desktop ----------
@@ -116,6 +116,19 @@ function connectWs() {
   state.ws = ws;
 }
 
+function renderSyncProgress({ done, total }) {
+  const el = $("sync-banner");
+  if (total === 0 || done >= total) {
+    if (!el.hidden) {
+      el.textContent = "Ready to play offline on this phone";
+      setTimeout(() => (el.hidden = true), 3000);
+    }
+    return;
+  }
+  el.hidden = false;
+  el.textContent = `Downloading songs for offline play… ${done}/${total}`;
+}
+
 async function enterRemoteMode() {
   state.mode = "remote";
   renderStatus();
@@ -123,7 +136,7 @@ async function enterRemoteMode() {
   state.songs = songs;
   renderSongs();
   connectWs();
-  sync.startBackgroundSync(state.pairing, songs).catch(() => {});
+  sync.startBackgroundSync(state.pairing, songs, renderSyncProgress).catch(() => {});
 }
 
 // ---------- Bluetooth mode: desktop-driven search, but the phone sings locally, fetching
@@ -138,12 +151,11 @@ function requestSongOverBluetooth(number) {
       pendingSongRequest = null;
       reject(new Error("Timed out waiting for the song over Bluetooth."));
     }, 45000);
-    pendingSongRequest = {
-      number,
-      resolve: (bytes) => { clearTimeout(timer); resolve(bytes); },
-      reject: (error) => { clearTimeout(timer); reject(error); },
-    };
-    modeWatcher.bleTransport.send({ type: "getSong", number });
+    const settle = { resolve: (bytes) => { clearTimeout(timer); resolve(bytes); }, reject: (error) => { clearTimeout(timer); reject(error); } };
+    pendingSongRequest = { number, ...settle };
+    modeWatcher.bleTransport.send({ type: "getSong", number }).catch((error) => {
+      if (pendingSongRequest?.number === number) { pendingSongRequest = null; settle.reject(error); }
+    });
   });
 }
 
@@ -153,11 +165,11 @@ function requestSoundBankOverBluetooth() {
       pendingSoundbankRequest = null;
       reject(new Error("Timed out waiting for the sound bank over Bluetooth."));
     }, 45000);
-    pendingSoundbankRequest = {
-      resolve: (bank) => { clearTimeout(timer); resolve(bank); },
-      reject: (error) => { clearTimeout(timer); reject(error); },
-    };
-    modeWatcher.bleTransport.send({ type: "getSoundbank" });
+    const settle = { resolve: (bank) => { clearTimeout(timer); resolve(bank); }, reject: (error) => { clearTimeout(timer); reject(error); } };
+    pendingSoundbankRequest = settle;
+    modeWatcher.bleTransport.send({ type: "getSoundbank" }).catch((error) => {
+      if (pendingSoundbankRequest === settle) { pendingSoundbankRequest = null; settle.reject(error); }
+    });
   });
 }
 
