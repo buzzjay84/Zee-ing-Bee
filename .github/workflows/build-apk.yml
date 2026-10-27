@@ -24,7 +24,15 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - uses: android-actions/setup-android@v3
+      # ubuntu-latest already ships an Android SDK (that's what android-actions/setup-android
+      # itself drives) - it just needs the platform/build-tools this project targets. Not
+      # using that action: it tries to install the long-discontinued legacy "tools"
+      # package and fails outright, even though everything else about it works fine.
+      - name: Install the required Android SDK platform/build-tools
+        run: |
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 2 -name sdkmanager | sort -V | tail -1)
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       # spessasynth_lib/spessasynth_core and the app icon get vendored into
       # src/mobile-remote/ from here, the same way a local `npm start` does.
