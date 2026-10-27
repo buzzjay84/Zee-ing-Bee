@@ -9,6 +9,9 @@ on:
       - ".github/workflows/build-apk.yml"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -58,3 +61,20 @@ jobs:
         with:
           name: zee-ing-bee-remote-debug-apk
           path: mobile-app/android/app/build/outputs/apk/debug/app-debug.apk
+
+      # The desktop installers land on this version's GitHub release (see installers.yml);
+      # attach the APK there too, once that release exists, instead of leaving it only as
+      # a workflow artifact (private to signed-in repo collaborators, and pruned after 30
+      # days). A push that only touches the mobile app, with no matching release yet, just
+      # keeps the artifact above - there's nothing to attach it to yet.
+      - name: Attach the APK to this version's release, if one exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v$(node -p "require('./package.json').version")"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            cp mobile-app/android/app/build/outputs/apk/debug/app-debug.apk "Zee-ing-Bee-Remote-$TAG.apk"
+            gh release upload "$TAG" "Zee-ing-Bee-Remote-$TAG.apk" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            echo "No release for $TAG yet - the .apk stays as a workflow artifact until one exists."
+          fi
