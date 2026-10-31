@@ -55,8 +55,7 @@ function sendJson(res, status, data) {
  * standalone offline playback. Never exposed outside the LAN; `token` is casual
  * same-WiFi safety, not real auth.
  */
-function createRemoteServer({ staticDir, getSongs, searchSongs, readSongFile, readSoundbank, readSongVideo, onAction, onClientsChanged = () => {} }) {
-  const token = crypto.randomBytes(16).toString("hex");
+function createRemoteServer({ staticDir, getSongs, searchSongs, readSongFile, readSoundbank, readSongVideo, onAction, onClientsChanged = () => {}, token = crypto.randomBytes(16).toString("hex"), port: preferredPort = 0 }) {
   let server;
   let wss;
   const clients = new Set();
@@ -94,6 +93,14 @@ function createRemoteServer({ staticDir, getSongs, searchSongs, readSongFile, re
   function handleRequest(req, res) {
     const url = new URL(req.url, "http://localhost");
     if (url.pathname.startsWith("/api/")) {
+      // The installed Android app runs at https://localhost, so every API call is cross-origin.
+      // The token still guards access.
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Expose-Headers", "X-Sound-Bank-Name, Content-Range, Content-Length");
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, { "Access-Control-Allow-Headers": "Range", "Access-Control-Allow-Private-Network": "true" });
+        return res.end();
+      }
       handleApi(req, res, url).catch((error) => {
         console.warn("Remote server request failed:", error.message);
         sendJson(res, 500, { error: "Internal error" });
@@ -138,9 +145,15 @@ function createRemoteServer({ staticDir, getSongs, searchSongs, readSongFile, re
         });
       });
     });
-    return new Promise((resolve, reject) => {
+    // A fixed port (plus a saved token) keeps the installed phone app paired across
+    // desktop restarts; if something else holds it, a random port still works for a fresh scan.
+    const listen = (port) => new Promise((resolve, reject) => {
       server.once("error", reject);
-      server.listen(0, "0.0.0.0", () => resolve());
+      server.listen(port, "0.0.0.0", () => resolve());
+    });
+    return listen(preferredPort).catch((error) => {
+      if (error.code !== "EADDRINUSE" || !preferredPort) throw error;
+      return listen(0);
     });
   }
 

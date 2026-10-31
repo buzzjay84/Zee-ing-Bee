@@ -217,6 +217,18 @@ function allowedToRead(file) {
   return lib.songs.some((s) => s.path === resolved) || soundBanks().some((b) => b.path === resolved);
 }
 
+/** Saved so a phone paired once stays paired after the desktop restarts. */
+function remoteToken() {
+  const file = path.join(app.getPath("userData"), "remote-token.txt");
+  try {
+    const saved = fs.readFileSync(file, "utf8").trim();
+    if (/^[0-9a-f]{32}$/.test(saved)) return saved;
+  } catch {}
+  const token = require("node:crypto").randomBytes(16).toString("hex");
+  try { fs.writeFileSync(file, token); } catch {}
+  return token;
+}
+
 /** What a phone is allowed to see of a song: enough to search/reserve/play, never local file paths. */
 function remoteSongInfo(song) {
   return { number: song.number, title: song.title, artist: song.artist, category: song.category, mediaKind: song.mediaKind ?? "midi" };
@@ -598,6 +610,8 @@ app.whenReady().then(async () => {
       readSongVideo: remoteSongVideo,
       onAction: (action) => { if (win && !win.isDestroyed()) win.webContents.send("remote:action", action); },
       onClientsChanged: (count) => { if (win && !win.isDestroyed()) win.webContents.send("remote:clients", count); },
+      token: remoteToken(),
+      port: 47800,
     });
     remoteServer.start()
       .then(() => console.log("Remote control server listening:", remoteServer.info().networks.map((n) => n.url).join(" or ")))

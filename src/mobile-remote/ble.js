@@ -66,7 +66,7 @@ export function createBleTransport({ onMessage, onConnectionChange }) {
   }
 
   async function send(message) {
-    if (!plugin || !connected) return;
+    if (!plugin || !connected) throw new Error("Bluetooth isn't connected.");
     for (const chunk of BT.encodeChunks(message)) await plugin.notify({ data: toBase64(chunk) });
   }
 

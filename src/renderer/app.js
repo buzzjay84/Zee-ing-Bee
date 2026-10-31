@@ -157,7 +157,7 @@ function applyRemoteAction(action) {
   else if (action.type === "singNow") { removeFromQueueByNumber(action.number); singNow(song); }
 }
 
-const bluetoothRemote = createBluetoothRemote({ getSongs: () => state.songs, getSoundBank: () => currentSoundBank(), onCommand: applyRemoteAction });
+const bluetoothRemote = createBluetoothRemote({ getSongs: () => state.songs, onCommand: applyRemoteAction, onConnected: () => pushRemoteState() });
 
 /** Keeps a paired phone's reserve list and now-playing banner in sync with the desktop. */
 function pushRemoteState() {
@@ -618,7 +618,7 @@ function wire() {
     try {
       $("btn-remote-bluetooth").disabled = true;
       await bluetoothRemote.connect();
-      toast("Bluetooth connected · the phone can search and reserve without WiFi now.");
+      toast("Bluetooth connected · the phone is now a remote, no WiFi needed.");
       $("remote").close();
     } catch (error) {
       toast(error.message, 5000);

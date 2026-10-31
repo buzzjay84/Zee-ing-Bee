@@ -109,7 +109,7 @@ export function createModeWatcher({ onChange, onBleMessage }) {
     repair(nextPairing) {
       pairing = nextPairing;
       savePairing(pairing);
-      check().then(schedule);
+      return check().then(schedule);
     },
   };
 }

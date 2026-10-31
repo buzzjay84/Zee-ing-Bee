@@ -129,3 +129,26 @@ test("a WebSocket connection with the wrong token is refused", async () => {
     server.stop();
   }
 });
+
+test("keeps a given token and falls back to a random port when the preferred one is taken", async () => {
+  const first = await startServer({ token: "a".repeat(32) });
+  const second = await startServer({ token: "a".repeat(32), port: first.port });
+  try {
+    assert.equal(first.token, "a".repeat(32));
+    assert.notEqual(second.port, first.port);
+    assert.equal((await fetch(`http://127.0.0.1:${second.port}/api/ping?token=${"a".repeat(32)}`)).status, 200);
+  } finally {
+    first.server.stop();
+    second.server.stop();
+  }
+});
+
+test("API responses allow the installed app's cross-origin calls", async () => {
+  const { server, port, token } = await startServer();
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/ping?token=${token}`, { headers: { Origin: "https://localhost" } });
+    assert.equal(response.headers.get("access-control-allow-origin"), "*");
+  } finally {
+    server.stop();
+  }
+});
