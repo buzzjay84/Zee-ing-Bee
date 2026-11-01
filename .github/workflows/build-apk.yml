@@ -5,6 +5,7 @@ on:
     paths:
       - "src/mobile-remote/**"
       - "src/shared/search.js"
+      - "src/shared/packs-url.js"
       - "mobile-app/**"
       - ".github/workflows/build-apk.yml"
   # Also runs right after "Build installers" finishes, so a version bump's APK lands on
@@ -53,6 +54,7 @@ jobs:
       - name: Install root dependencies and vendor mobile assets
         run: |
           npm ci
+          npm run make-icons
           node scripts/copy-mobile-vendor.cjs
 
       - name: Install Capacitor dependencies and sync the Android project

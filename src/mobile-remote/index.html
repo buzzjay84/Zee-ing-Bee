@@ -13,12 +13,14 @@
 {
   "imports": {
     "spessasynth_lib": "./vendor/spessasynth_lib/index.js",
-    "spessasynth_core": "./vendor/spessasynth_core/index.js"
+    "spessasynth_core": "./vendor/spessasynth_core/index.js",
+    "stb-vorbis": "./vendor/stb-vorbis/index.js"
   }
 }
 </script>
 <script src="./shared/search.js"></script>
 <script src="./shared/bluetooth.js"></script>
+<script src="./shared/packs-url.js"></script>
 <script type="module" src="app.js"></script>
 </head>
 <body>
@@ -26,38 +28,95 @@
 
   <main id="home">
     <header class="topbar">
-      <div class="brand"><img class="brand-logo" src="icon.png" alt="" onerror="this.hidden=true"><span>Zee-ing Bee Mobile</span></div>
-      <p id="mode-banner" class="mode-banner">Checking for a desktop…</p>
-      <button id="btn-pair" class="primary pair" hidden>Scan desktop QR to use as remote</button>
-      <p id="sync-banner" class="sync-banner" hidden></p>
+      <div class="brand-notes" aria-hidden="true"><span>♪</span><span>♫</span><span>♬</span><span>♪</span><span>♫</span><span>♪</span></div>
+      <div class="brand"><img class="brand-logo" src="icon.png" alt="Zee-ing Bee" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden>Zee-ing Bee</span></div>
+      <div class="status">
+        <p id="mode-banner" class="mode-banner">Checking for a desktop…</p>
+        <button id="btn-pair" class="ghost pair" hidden>Scan desktop QR</button>
+      </div>
     </header>
+    <p id="sync-banner" class="sync-banner" hidden></p>
+    <p id="packs-banner" class="sync-banner" role="status" hidden></p>
 
-    <section class="search-section">
-      <input id="search" type="search" placeholder="Search by title, artist or number" autocomplete="off">
-      <p id="song-count" class="muted small"></p>
-      <ul id="results" class="song-list"></ul>
+    <section class="panel pad">
+      <div id="number-display" class="number-display" aria-live="polite">-----</div>
+      <div id="number-song" class="number-song muted">Type a song number</div>
+      <div class="keypad" id="keypad">
+        <button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button>
+        <button data-key="4">4</button><button data-key="5">5</button><button data-key="6">6</button>
+        <button data-key="7">7</button><button data-key="8">8</button><button data-key="9">9</button>
+        <button data-key="clear" class="soft">C</button><button data-key="0">0</button><button data-key="back" class="soft">⌫</button>
+      </div>
+      <div class="pad-actions">
+        <button id="btn-reserve">Reserve</button>
+        <button id="btn-sing-now" class="primary">▶ Sing now</button>
+      </div>
     </section>
 
-    <section class="queue-section">
-      <h2>Reserved <span id="queue-count"></span></h2>
-      <p id="now-playing" class="muted small">Nothing playing</p>
-      <ul id="queue" class="queue-list"></ul>
+    <section class="panel queue">
+      <h2>Reserved <span id="queue-count" class="muted"></span></h2>
+      <p id="now-playing" class="now-playing muted small">Nothing playing</p>
+      <ol id="queue" class="queue-list"></ol>
+      <p id="queue-empty" class="muted small">Reserve songs by number, even while someone sings.</p>
+    </section>
+
+    <section class="panel songs">
+      <div class="search-row">
+        <input id="search" type="search" placeholder="Search title, artist or number" autocomplete="off">
+        <span id="song-count" class="muted small"></span>
+      </div>
+      <div id="chips" class="chips"></div>
+      <p id="search-note" class="muted small" role="status" hidden></p>
+      <ol id="results" class="song-list"></ol>
+      <div id="empty" class="empty muted small" hidden>No songs on this phone yet. They download automatically while the phone is online.</div>
     </section>
   </main>
 
   <section id="stage" hidden>
-    <header class="stage-header">
-      <div class="stage-title" id="stage-title"></div>
-      <div class="stage-artist" id="stage-artist"></div>
-    </header>
-    <div class="lyrics">
-      <div class="line" id="slot-0"></div>
-      <div class="line next" id="slot-1"></div>
+    <div class="backdrop" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div id="title-card" class="title-card">
+      <div id="tc-number" class="tc-number"></div>
+      <div id="tc-title" class="tc-title"></div>
+      <div id="tc-artist" class="tc-artist"></div>
     </div>
-    <div class="progress"><div id="progress-fill"></div></div>
-    <div class="stage-actions">
-      <button id="btn-pause" class="ghost">Pause</button>
-      <button id="btn-stop" class="danger">Stop</button>
+    <div class="lyrics">
+      <div class="line slot-0" id="slot-0"></div>
+      <div class="line slot-1" id="slot-1"></div>
+    </div>
+
+    <footer class="stage-bar">
+      <div class="now">
+        <div id="now-title" class="now-title"></div>
+        <div id="next-up" class="muted small"></div>
+        <div class="progress"><div id="progress-fill"></div></div>
+      </div>
+      <div class="controls">
+        <div class="stepper" title="Key">
+          <button id="key-down" aria-label="Key down">♭</button>
+          <span id="key-value">Key 0</span>
+          <button id="key-up" aria-label="Key up">♯</button>
+        </div>
+        <div class="stepper" title="Tempo">
+          <button id="tempo-down" aria-label="Slower">−</button>
+          <span id="tempo-value">100%</span>
+          <button id="tempo-up" aria-label="Faster">＋</button>
+        </div>
+        <button id="btn-guide" class="toggle on" aria-pressed="true">Guide: On</button>
+        <button id="btn-mixer">Mixer</button>
+        <button id="btn-pause" aria-label="Pause">❚❚</button>
+        <button id="btn-skip" aria-label="Next song">⏭</button>
+        <button id="btn-stop" class="danger" aria-label="Stop">■</button>
+      </div>
+    </footer>
+
+    <div id="mixer" class="mixer" hidden>
+      <h3>Sound mixer</h3>
+      <label>Melody <input type="range" min="0" max="2" step="0.05" value="1.35" data-mix="melody"></label>
+      <label>Bass <input type="range" min="0" max="2" step="0.05" value="1" data-mix="bass"></label>
+      <label>Drums <input type="range" min="0" max="2" step="0.05" value="1" data-mix="drums"></label>
+      <label>Band <input type="range" min="0" max="2" step="0.05" value="1" data-mix="band"></label>
+      <label>Echo <input type="range" min="0" max="1" step="0.05" value="0" id="mix-echo"></label>
+      <label>Volume <input type="range" min="0" max="1.5" step="0.05" value="1" id="mix-volume"></label>
     </div>
   </section>
 </body>

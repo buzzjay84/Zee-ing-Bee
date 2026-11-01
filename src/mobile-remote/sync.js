@@ -42,8 +42,9 @@ export function createSync() {
    * Opportunistic background caching while a desktop is reachable (Remote mode). Runs
    * silently unless `onProgress({done, total})` is given - without it, there's no way
    * for the person to tell this is happening at all, or when it's safe to walk away.
+   * `skip(song)` leaves out songs the phone gets elsewhere (the song packs).
    */
-  async function startBackgroundSync(pairing, songs, onProgress = () => {}) {
+  async function startBackgroundSync(pairing, songs, onProgress = () => {}, skip = () => false) {
     const db = await dbPromise;
     await idbSet(db, "meta", "catalog", songs);
     if (syncing) return;
@@ -59,7 +60,7 @@ export function createSync() {
       }
       // MIDI songs are tiny, so the whole catalog is prefetched; videos are opt-in (see
       // downloadVideoForOffline) since they can be large.
-      const eligible = songs.filter((song) => !song.mediaKind || song.mediaKind === "midi");
+      const eligible = songs.filter((song) => (!song.mediaKind || song.mediaKind === "midi") && !skip(song));
       let done = 0;
       onProgress({ done, total: eligible.length });
       for (const song of eligible) {

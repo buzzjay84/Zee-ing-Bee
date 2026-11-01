@@ -231,7 +231,7 @@ function remoteToken() {
 
 /** What a phone is allowed to see of a song: enough to search/reserve/play, never local file paths. */
 function remoteSongInfo(song) {
-  return { number: song.number, title: song.title, artist: song.artist, category: song.category, mediaKind: song.mediaKind ?? "midi" };
+  return { number: song.number, title: song.title, artist: song.artist, category: song.category, mediaKind: song.mediaKind ?? "midi", builtIn: Boolean(song.builtIn) };
 }
 
 async function remoteSongFile(number) {

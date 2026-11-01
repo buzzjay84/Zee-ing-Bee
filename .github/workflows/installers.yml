@@ -82,6 +82,9 @@ jobs:
           npm test
       - name: Download basic sound bank and license
         run: npm run fetch-soundfont
+      # resources/ is gitignored, so without this electron-builder falls back to the default Electron icon.
+      - name: Generate app icons
+        run: npm run make-icons
       - name: Prepare installer configuration
         run: node scripts/prepare-ci-build.cjs
       - name: Build installer

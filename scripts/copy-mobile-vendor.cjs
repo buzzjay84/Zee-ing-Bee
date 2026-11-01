@@ -18,13 +18,13 @@ function copyDist(pkg) {
   }
 }
 
-for (const pkg of ["spessasynth_lib", "spessasynth_core"]) copyDist(pkg);
+for (const pkg of ["spessasynth_lib", "spessasynth_core", "stb-vorbis"]) copyDist(pkg);
 
 // The mobile app is served live by the desktop and bundled standalone into the Capacitor
 // APK, so its search logic is vendored in here rather than referenced across directories
 // (the APK build has no access to anything outside src/mobile-remote/).
 fs.mkdirSync(path.join(vendorDir, "..", "shared"), { recursive: true });
-for (const file of ["search.js", "bluetooth.js"]) {
+for (const file of ["search.js", "bluetooth.js", "packs-url.js"]) {
   fs.copyFileSync(path.join(root, "src", "shared", file), path.join(vendorDir, "..", "shared", file));
 }
 

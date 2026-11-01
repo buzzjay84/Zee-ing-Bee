@@ -1,4 +1,4 @@
-# Zee-ing Bee v1.0.5
+# Zee-ing Bee v1.0.6
 
 ## Downloads
 
@@ -6,23 +6,20 @@
 - **macOS — Apple Silicon:** arm64 `.dmg` for M-series Macs.
 - **macOS — Intel:** x64 `.dmg` for Intel Macs.
 - SHA-256 checksum files are included alongside the installers.
-- **Android:** `Zee-ing-Bee-Mobile-v1.0.5.apk` on this release — sideload it (phone needs "install from unknown sources" allowed).
+- **Android:** `Zee-ing-Bee-Mobile-v1.0.6.apk` on this release — sideload it (phone needs "install from unknown sources" allowed).
 
 ## New
 
-- **The phone is now a full remote.** With the desktop app open, search on the phone and tap **Sing now** to play a song on the laptop right away, or **Reserve** to queue it. Tap ✕ to take a song off the queue. The phone shows the live queue and what's playing.
-- **Scan the desktop QR inside the app.** Tap **Scan desktop QR to use as remote** in Zee-ing Bee Mobile. Scanning with the phone's camera app opens a browser instead. If the scanner can't open, type the address shown under the QR.
-- **No WiFi? Use Bluetooth.** On the desktop, open **Remote → Connect via Bluetooth instead**. The phone works as the same full remote. A phone hotspot or USB tethering also works with the QR.
-- **Pair once.** The desktop now keeps the same pairing code and port (47800) across restarts, so a paired phone reconnects by itself.
+- **Songs download by themselves.** On first launch, the desktop app and the phone app both download the song library (about 515 MB) in the background. A banner shows the percentage, and songs appear as each part arrives, so you can start singing before it finishes. If the connection drops, it picks up again by itself.
+- **The phone looks and works like the desktop.** It has the same song list with category chips, the number keypad with **Reserve** and **▶ Sing now**, and the Reserved list. Singing on the phone now has the desktop's stage: title card, big lyrics, and Key, Tempo, Guide, Mixer, Pause, Skip and Stop.
+- **The phone sings without a desktop.** With the songs downloaded, the phone plays any song on its own. Song numbers match the desktop's, so the printed songbook works on the phone too.
 
 ## Fixed
 
-- The installed Android app could never connect to the desktop over WiFi: the desktop rejected its requests. It now allows them.
-- If a desktop appeared while the phone was singing on its own, the phone kept going and then tried to play the desktop's queue itself. It now stops and becomes the remote.
-- Over Bluetooth, the phone no longer says "Reserved" when the connection has dropped.
+- The installed Android app could get stuck on "Checking for a desktop…" with buttons that did nothing. It now starts properly.
+- The app icon was missing on Windows (it showed the default Electron icon). It's back.
 
 ## Changed
 
-- In Bluetooth mode the phone no longer downloads songs and plays them itself. Without a desktop, it still plays songs already downloaded over WiFi.
-- The splash screen is now on the app's dark background.
-- Updated Capacitor to 8.6.0 and Gradle to 9.5.0. That's the newest Gradle this Android setup supports, and it builds with Android Studio's bundled Java 25.
+- When paired with a desktop over WiFi, the phone no longer copies songs it already got from the song download. It only copies songs you added on the desktop yourself.
+- Updated the Android build tools to the latest (Android Gradle plugin 9.4.1, Gradle 9.6.0).
