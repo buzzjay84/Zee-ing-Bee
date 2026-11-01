@@ -17,6 +17,7 @@ const state = {
   category: "All",
   query: "",
   digits: "",
+  played: [],
   queue: [],
 };
 
@@ -150,19 +151,38 @@ function removeFromQueueByNumber(number) {
 
 /** Shared by the WiFi (IPC) and Bluetooth transports - both just hand it a {type, number}. */
 function applyRemoteAction(action) {
+  if (action.type === "control") return applyRemoteControl(action.action);
   const song = state.byNumber.get(String(action.number));
   if (!song) return;
-  if (action.type === "reserve") reserve(song);
+  // The phone's nickname, shown beside the songs it reserves (many phones can share one desktop).
+  const by = typeof action.by === "string" ? action.by.trim().slice(0, 24) : "";
+  const tagged = by ? { ...song, by } : song;
+  if (action.type === "reserve") reserve(tagged);
   else if (action.type === "remove") removeFromQueueByNumber(action.number);
-  else if (action.type === "singNow") { removeFromQueueByNumber(action.number); singNow(song); }
+  else if (action.type === "singNow") { removeFromQueueByNumber(action.number); singNow(tagged); }
+}
+
+/** Play/pause, next, previous and stop from a phone; stop skips the desktop's confirm prompt. */
+function applyRemoteControl(control) {
+  if (!player.song) return;
+  if (control === "pause") $("btn-pause").click();
+  else if (control === "next") $("btn-skip").click();
+  else if (control === "stop") leaveStage();
+  else if (control === "previous") {
+    if (!state.played.length || player.song.mediaKind === "music-video") return;
+    const previous = state.played.pop();
+    state.queue.unshift(player.song);
+    singNow(previous, { fromHistory: true });
+  }
+  pushRemoteState();
 }
 
 const bluetoothRemote = createBluetoothRemote({ getSongs: () => state.songs, onCommand: applyRemoteAction, onConnected: () => pushRemoteState() });
 
 /** Keeps a paired phone's reserve list and now-playing banner in sync with the desktop. */
 function pushRemoteState() {
-  const minimal = (s) => ({ number: s.number, title: s.title, artist: s.artist });
-  const payload = { queue: state.queue.map(minimal), nowPlaying: player.song ? minimal(player.song) : null };
+  const minimal = (s) => ({ number: s.number, title: s.title, artist: s.artist, by: s.by });
+  const payload = { queue: state.queue.map(minimal), nowPlaying: player.song ? minimal(player.song) : null, paused: Boolean(player.song && player.paused) };
   window.zb.pushRemoteState?.(payload).catch(() => {});
   if (bluetoothRemote.isConnected()) bluetoothRemote.sendState({ type: "state", ...payload }).catch(() => {});
 }
@@ -173,9 +193,10 @@ function renderQueue() {
   $("queue").replaceChildren(
     ...state.queue.map((s, i) => {
       const li = document.createElement("li");
-      li.innerHTML = `<span class="num"></span><span class="t"></span><button title="Sing now">▶</button><button title="Remove">✕</button>`;
+      li.innerHTML = `<span class="num"></span><span class="t"></span><span class="by"></span><button title="Sing now">▶</button><button title="Remove">✕</button>`;
       li.querySelector(".num").textContent = s.number;
       li.querySelector(".t").textContent = s.title;
+      li.querySelector(".by").textContent = s.by ?? "";
       const [now, remove] = li.querySelectorAll("button");
       now.onclick = () => {
         state.queue.splice(i, 1);
@@ -274,8 +295,10 @@ function currentSoundBank() {
   return state.soundBanks.find((b) => b.path === state.settings.soundBank) ?? state.soundBanks[0];
 }
 
-async function singNow(song) {
+async function singNow(song, { fromHistory = false } = {}) {
   const request = ++playRequest;
+  // History for a phone's "previous" button; karaoke songs only, not break-time music videos.
+  if (!fromHistory && player.song && player.song !== song && player.song.mediaKind !== "music-video") state.played.push(player.song);
   try {
     await window.zb.openDisplay();
     const isVideo = isRecordedVideo(song);
@@ -685,7 +708,7 @@ function wire() {
     if (mixerGuide) mixerGuide.value = volume;
   };
   $("guide-level").onchange = () => window.zb.setSettings({ guideVolume: midiPlayer.mix.melody });
-  $("btn-pause").onclick = () => (player.togglePause(), updateStageControls());
+  $("btn-pause").onclick = () => (player.togglePause(), updateStageControls(), pushRemoteState());
   $("btn-skip").onclick = () => player.song?.mediaKind === "music-video" ? playNextMusic() : playNext();
   $("btn-stop").onclick = () => stopSong();
   $("btn-mixer").onclick = () => ($("mixer").hidden = !$("mixer").hidden);
@@ -707,11 +730,13 @@ function wire() {
   });
   $("stage").addEventListener("mousemove", wakeStage);
 
-  // Keyboard: digits go to the number pad unless typing in a field.
+  // Keyboard: on the song list, typing goes to the search box (it finds numbers too);
+  // on stage, where the search is hidden, digits go to the number pad to reserve.
   document.addEventListener("keydown", (e) => {
     const typing = e.target.matches("input[type=search], input[type=text]") || $("settings").open || $("online-karaoke").open || $("music-library").open;
     if (typing) return;
     const onStage = Boolean(player.song);
+    if (!onStage && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) return $("search").focus();
     if (/^\d$/.test(e.key)) pressKey(e.key);
     else if (e.key === "Backspace") pressKey("back");
     else if (e.key === "Escape") state.digits ? pressKey("clear") : onStage && ($("mixer").hidden = true);
@@ -734,6 +759,7 @@ videoPlayer.onEnded = () => player.song?.mediaKind === "music-video" ? playNextM
 videoPlayer.onError = (error) => { leaveStage(); toast(error.message, 5000); };
 setDigits("");
 applyLibrary(await window.zb.getLibrary());
+$("search").focus();
 // Keep the display synchronized even when the dashboard is minimized.
 setInterval(frame, 33);
 

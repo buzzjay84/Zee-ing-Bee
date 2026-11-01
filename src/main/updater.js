@@ -1,14 +1,16 @@
 // Checks for and downloads app updates in the background, then waits for the person to
-// choose "Restart & update" rather than ever restarting on its own mid-event. Each build
-// (the lean "latest" channel built by CI, or a "full" channel built locally with song
-// packs bundled in) only ever sees updates published to its own channel — that's baked
-// into app-update.yml at build time by electron-builder, so there's nothing to pick here.
+// choose "Restart & update" rather than ever restarting on its own mid-event. Every build,
+// including a "full" one with song packs bundled in, follows the app-only "latest" channel
+// that CI publishes on each release: an app-only update drops the bundled packs, and the
+// app then downloads the same songs in the background (see pack-downloader.js).
 const CHECK_INITIAL_DELAY = 15000;
 const CHECK_INTERVAL = 4 * 60 * 60 * 1000;
 
 function createUpdater({ app, autoUpdater, notify = () => {}, log = console } = {}) {
   let timer;
   let ready = null; // { version } once an update has finished downloading
+  autoUpdater.channel = "latest";
+  autoUpdater.allowDowngrade = false; // setting channel turns this on
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on("update-downloaded", (info) => {

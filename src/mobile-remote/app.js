@@ -4,6 +4,7 @@ import { syllableFill } from "./lyrics.js";
 import { createModeWatcher } from "./mode.js";
 import { createSync } from "./sync.js";
 import { createPackStore } from "./packs.js";
+import { findUpdate } from "./update.js";
 
 const { searchSongs } = window.ZBSearch;
 const $ = (id) => document.getElementById(id);
@@ -18,6 +19,7 @@ const state = {
   byNumber: new Map(),
   queue: [],
   nowPlaying: null,
+  paused: false,
   ws: null,
   bleResults: [],
 };
@@ -46,7 +48,29 @@ function renderStatus() {
   banner.textContent = { remote: "Connected to desktop", bluetooth: "Connected to desktop via Bluetooth", standalone: "No desktop found - playing on this phone" }[state.mode] ?? "Checking for a desktop…";
   banner.className = `mode-banner ${state.mode ?? ""}`;
   $("btn-pair").hidden = isRemote() || !window.Capacitor?.Plugins?.QrScanner;
+  $("btn-disconnect").hidden = !isRemote();
+  $("btn-nickname").hidden = !isRemote();
+  $("btn-nickname").textContent = nickname() ? `Name: ${nickname()}` : "Set your name";
 }
+
+const NICKNAME_KEY = "zb-nickname";
+function nickname() {
+  try { return localStorage.getItem(NICKNAME_KEY) ?? ""; } catch { return ""; }
+}
+/** Asks for the name the desktop shows beside this phone's reservations; false if cancelled. */
+function askNickname() {
+  const name = prompt("Your name, shown on the desktop next to the songs you reserve:", nickname())?.trim().slice(0, 24);
+  if (!name) return false;
+  try { localStorage.setItem(NICKNAME_KEY, name); } catch { /* name just won't be remembered */ }
+  renderStatus();
+  return true;
+}
+
+$("btn-nickname").onclick = askNickname;
+$("btn-disconnect").onclick = () => {
+  if (!confirm("Disconnect from the desktop and sing on this phone? Scan the desktop QR again to reconnect.")) return;
+  modeWatcher.disconnect();
+};
 
 /** WiFi and Bluetooth both make this phone a remote: the desktop sings, the phone picks songs. */
 function isRemote() {
@@ -122,9 +146,10 @@ function renderQueue() {
   $("queue").replaceChildren(
     ...state.queue.map((s, i) => {
       const li = document.createElement("li");
-      li.innerHTML = `<span class="num"></span><span class="t"></span><button title="Remove">✕</button>`;
+      li.innerHTML = `<span class="num"></span><span class="t"></span><span class="by"></span><button title="Remove">✕</button>`;
       li.querySelector(".num").textContent = s.number;
       li.querySelector(".t").textContent = s.title || "";
+      li.querySelector(".by").textContent = s.by ?? "";
       li.querySelector("button").onclick = () => {
         if (isRemote()) return sendRemote("remove", s);
         state.queue.splice(i, 1);
@@ -135,6 +160,9 @@ function renderQueue() {
   );
   $("queue-empty").hidden = state.queue.length > 0;
   $("next-up").textContent = state.queue[0] ? `Next: ${state.queue[0].number} · ${state.queue[0].title}` : "";
+  $("remote-controls").hidden = !isRemote() || !state.nowPlaying;
+  $("remote-pause").textContent = state.paused ? "▶" : "❚❚";
+  $("remote-pause").setAttribute("aria-label", state.paused ? "Play" : "Pause");
   $("now-playing").textContent = state.nowPlaying ? `Now playing: ${state.nowPlaying.number ? `${state.nowPlaying.number} · ` : ""}${state.nowPlaying.title}` : "Nothing playing";
 }
 
@@ -188,13 +216,29 @@ $("search").addEventListener("input", (event) => {
 const SENT = { reserve: "Reserved", singNow: "Singing on the desktop:", remove: "Removed" };
 
 function sendRemote(type, song) {
+  if (type !== "remove" && !nickname() && !askNickname()) return;
   const sent = () => toast(`${SENT[type]} ${song.number}${song.title ? ` · ${song.title}` : ""}`);
   const retry = () => toast("Reconnecting to the desktop… try again in a moment.");
-  if (state.mode === "bluetooth") return modeWatcher.bleTransport.send({ type, number: song.number }).then(sent, retry);
+  const message = { type, number: song.number, by: nickname() };
+  if (state.mode === "bluetooth") return modeWatcher.bleTransport.send(message).then(sent, retry);
   if (state.ws?.readyState !== WebSocket.OPEN) return retry();
-  state.ws.send(JSON.stringify({ type, number: song.number }));
+  state.ws.send(JSON.stringify(message));
   sent();
 }
+
+/** Play/pause, next, previous or stop on the desktop. */
+function sendControl(action) {
+  const message = { type: "control", action };
+  const retry = () => toast("Reconnecting to the desktop… try again in a moment.");
+  if (state.mode === "bluetooth") return modeWatcher.bleTransport.send(message).catch(retry);
+  if (state.ws?.readyState !== WebSocket.OPEN) return retry();
+  state.ws.send(JSON.stringify(message));
+}
+
+$("remote-controls").addEventListener("click", (event) => {
+  const action = event.target.closest("button")?.dataset.control;
+  if (action) sendControl(action);
+});
 
 /** Accepts the desktop's pairing URL, e.g. http://192.168.1.5:47800/?token=abc… */
 function pairingFromText(text) {
@@ -231,6 +275,7 @@ function connectWs() {
     if (message.type !== "state") return;
     state.queue = message.queue;
     state.nowPlaying = message.nowPlaying;
+    state.paused = Boolean(message.paused);
     renderQueue();
   };
   ws.onclose = () => {
@@ -288,6 +333,7 @@ function handleBleMessage(message) {
   } else if (message.type === "state") {
     state.queue = message.queue;
     state.nowPlaying = message.nowPlaying;
+    state.paused = Boolean(message.paused);
     renderQueue();
   }
 }
@@ -505,3 +551,16 @@ const modeWatcher = createModeWatcher({
   },
   onBleMessage: handleBleMessage,
 });
+
+// ---------- Updates: the installed app checks GitHub on launch ----------
+
+if (NATIVE && window.ZB_VERSION) {
+  findUpdate(window.ZB_VERSION).then((update) => {
+    if (!update) return;
+    const el = $("update-banner");
+    el.innerHTML = `Update v${update.version} is available. <a></a>`;
+    el.querySelector("a").href = update.url;
+    el.querySelector("a").textContent = "Download and install";
+    el.hidden = false;
+  }).catch(() => {}); // offline: try again next launch
+}

@@ -18,6 +18,13 @@ test("does not check for updates outside a packaged build", () => {
   updater.stop();
 });
 
+test("follows the app-only latest channel without allowing downgrades, even in a full build", () => {
+  const autoUpdater = fakeAutoUpdater();
+  createUpdater({ app: { isPackaged: true }, autoUpdater, log: { warn() {} } });
+  assert.equal(autoUpdater.channel, "latest");
+  assert.equal(autoUpdater.allowDowngrade, false);
+});
+
 test("checks for updates after the initial delay, then on an interval", () => {
   mock.timers.enable({ apis: ["setTimeout"] });
   try {

@@ -8,6 +8,18 @@ const PING_TIMEOUT_MS = 2000;
 const BLE_START_TIMEOUT_MS = 5000;
 const RECHECK_MS = 20000;
 const STORAGE_KEY = "zb-remote-pairing";
+// Set by "Disconnect": stay standalone, without reconnecting over WiFi or Bluetooth, until a new QR scan.
+const DISCONNECTED_KEY = "zb-disconnected";
+let disconnectedNow = false;
+
+function disconnected() {
+  try { return disconnectedNow || localStorage.getItem(DISCONNECTED_KEY) === "1"; } catch { return disconnectedNow; }
+}
+
+function setDisconnected(value) {
+  disconnectedNow = value;
+  try { value ? localStorage.setItem(DISCONNECTED_KEY, "1") : localStorage.removeItem(DISCONNECTED_KEY); } catch { /* lasts until the app restarts */ }
+}
 
 /** Bounds a promise that has no timeout of its own (e.g. a native plugin call that could
  * hang) so one slow/stuck step can never block the whole mode check forever. */
@@ -38,6 +50,7 @@ function pairFromUrl() {
   if (!token) return null;
   const pairing = { origin: location.origin, token };
   savePairing(pairing);
+  setDisconnected(false);
   history.replaceState(null, "", location.pathname);
   return pairing;
 }
@@ -68,7 +81,7 @@ export function createModeWatcher({ onChange, onBleMessage }) {
 
   const bleTransport = createBleTransport({
     onMessage: onBleMessage,
-    onConnectionChange: (connected) => (connected ? setMode("bluetooth") : check()),
+    onConnectionChange: (connected) => (connected && !disconnected() ? setMode("bluetooth") : check()),
   });
 
   function setMode(next) {
@@ -78,6 +91,7 @@ export function createModeWatcher({ onChange, onBleMessage }) {
   }
 
   async function check() {
+    if (disconnected()) return setMode("standalone");
     if (await ping(pairing)) {
       await bleTransport.stop();
       return setMode("remote");
@@ -109,7 +123,13 @@ export function createModeWatcher({ onChange, onBleMessage }) {
     repair(nextPairing) {
       pairing = nextPairing;
       savePairing(pairing);
+      setDisconnected(false);
       return check().then(schedule);
+    },
+    async disconnect() {
+      setDisconnected(true);
+      await bleTransport.stop().catch(() => {});
+      setMode("standalone");
     },
   };
 }

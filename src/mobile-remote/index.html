@@ -21,6 +21,7 @@
 <script src="./shared/search.js"></script>
 <script src="./shared/bluetooth.js"></script>
 <script src="./shared/packs-url.js"></script>
+<script src="./shared/version.js"></script>
 <script type="module" src="app.js"></script>
 </head>
 <body>
@@ -33,10 +34,39 @@
       <div class="status">
         <p id="mode-banner" class="mode-banner">Checking for a desktop…</p>
         <button id="btn-pair" class="ghost pair" hidden>Scan desktop QR</button>
+        <div class="status-actions">
+          <button id="btn-nickname" class="ghost pair" hidden>Set your name</button>
+          <button id="btn-disconnect" class="ghost pair" hidden>Disconnect</button>
+        </div>
       </div>
     </header>
     <p id="sync-banner" class="sync-banner" hidden></p>
     <p id="packs-banner" class="sync-banner" role="status" hidden></p>
+    <p id="update-banner" class="sync-banner" role="status" hidden></p>
+
+    <section class="panel songs">
+      <div class="search-row">
+        <input id="search" type="search" placeholder="Search title, artist or number" autocomplete="off">
+        <span id="song-count" class="muted small"></span>
+      </div>
+      <div id="chips" class="chips"></div>
+      <p id="search-note" class="muted small" role="status" hidden></p>
+      <ol id="results" class="song-list"></ol>
+      <div id="empty" class="empty muted small" hidden>No songs on this phone yet. They download automatically while the phone is online.</div>
+    </section>
+
+    <section class="panel queue">
+      <h2>Reserved <span id="queue-count" class="muted"></span></h2>
+      <p id="now-playing" class="now-playing muted small">Nothing playing</p>
+      <div id="remote-controls" class="remote-controls" hidden>
+        <button data-control="previous" aria-label="Previous song">⏮</button>
+        <button data-control="pause" id="remote-pause" aria-label="Pause">❚❚</button>
+        <button data-control="next" aria-label="Next song">⏭</button>
+        <button data-control="stop" class="danger" aria-label="Stop">■</button>
+      </div>
+      <ol id="queue" class="queue-list"></ol>
+      <p id="queue-empty" class="muted small">Reserve songs by number, even while someone sings.</p>
+    </section>
 
     <section class="panel pad">
       <div id="number-display" class="number-display" aria-live="polite">-----</div>
@@ -51,24 +81,6 @@
         <button id="btn-reserve">Reserve</button>
         <button id="btn-sing-now" class="primary">▶ Sing now</button>
       </div>
-    </section>
-
-    <section class="panel queue">
-      <h2>Reserved <span id="queue-count" class="muted"></span></h2>
-      <p id="now-playing" class="now-playing muted small">Nothing playing</p>
-      <ol id="queue" class="queue-list"></ol>
-      <p id="queue-empty" class="muted small">Reserve songs by number, even while someone sings.</p>
-    </section>
-
-    <section class="panel songs">
-      <div class="search-row">
-        <input id="search" type="search" placeholder="Search title, artist or number" autocomplete="off">
-        <span id="song-count" class="muted small"></span>
-      </div>
-      <div id="chips" class="chips"></div>
-      <p id="search-note" class="muted small" role="status" hidden></p>
-      <ol id="results" class="song-list"></ol>
-      <div id="empty" class="empty muted small" hidden>No songs on this phone yet. They download automatically while the phone is online.</div>
     </section>
   </main>
 

@@ -28,6 +28,9 @@ for (const file of ["search.js", "bluetooth.js", "packs-url.js"]) {
   fs.copyFileSync(path.join(root, "src", "shared", file), path.join(vendorDir, "..", "shared", file));
 }
 
+// The phone app compares this with the latest GitHub release to offer updates (update.js).
+fs.writeFileSync(path.join(vendorDir, "..", "shared", "version.js"), `window.ZB_VERSION = ${JSON.stringify(require(path.join(root, "package.json")).version)};\n`);
+
 // Same app icon the desktop installer uses, for the mobile app's home-screen icon.
 try {
   fs.copyFileSync(path.join(root, "resources", "icons", "zee-ing-bee.png"), path.join(root, "src", "mobile-remote", "icon.png"));

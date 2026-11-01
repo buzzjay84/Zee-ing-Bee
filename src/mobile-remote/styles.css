@@ -75,6 +75,8 @@ button:disabled { opacity: 0.4; }
 .mode-banner.remote { background: #1d3a1f; border-color: #2f5e32; color: #a6e3a1; }
 .mode-banner.bluetooth { background: #1d2f45; border-color: #2f4d70; color: #8ec4ff; }
 .mode-banner.standalone { background: #3a2c12; border-color: var(--honey); color: var(--honey-2); }
+.status-actions { display: flex; gap: 6px; }
+.queue-list .by { color: var(--muted); font-size: 12px; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pair { font-size: 13px; min-height: 34px; padding: 4px 12px; border-color: var(--honey); color: var(--honey-2); }
 .sync-banner { margin: -4px 0 0; padding: 6px 12px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--honey); font-size: 12px; text-align: center; }
 
@@ -98,6 +100,9 @@ button:disabled { opacity: 0.4; }
 
 .queue h2 { font-size: 16px; margin: 0 0 6px; }
 .now-playing { margin: 0 0 6px; }
+.remote-controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0 0 8px; }
+.remote-controls button { min-height: 48px; font-size: 18px; }
+#update-banner a { color: var(--honey-2); font-weight: 700; }
 .queue-list { list-style: none; margin: 0; padding: 0; }
 .queue-list li { display: flex; gap: 10px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--line); }
 .queue-list .num { color: var(--honey); font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -141,6 +146,8 @@ button:disabled { opacity: 0.4; }
 .song-list .row-actions { display: flex; gap: 6px; }
 .song-list .row-actions button { padding: 4px 10px; min-height: 36px; font-size: 13px; }
 .empty { text-align: center; padding: 16px 8px; }
+/* Phones: search comes first, so cap the list and keep the reserve list and keypad close below. */
+@media (max-width: 719px) { .song-list { max-height: 60vh; overflow-y: auto; } }
 
 /* Tablets and landscape: songs on the left, keypad and queue on the right, like the desktop. */
 @media (min-width: 720px) {

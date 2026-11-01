@@ -110,8 +110,9 @@ test("a WebSocket reserve action is forwarded, and broadcastState reaches the ph
     await new Promise((resolve, reject) => { ws.once("open", resolve); ws.once("error", reject); });
     const received = new Promise((resolve) => ws.once("message", (raw) => resolve(JSON.parse(raw.toString()))));
     ws.send(JSON.stringify({ type: "reserve", number: 10001 }));
+    ws.send(JSON.stringify({ type: "control", action: "pause" }));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    assert.deepEqual(actions, [{ type: "reserve", number: 10001 }]);
+    assert.deepEqual(actions, [{ type: "reserve", number: 10001 }, { type: "control", action: "pause" }]);
     server.broadcastState({ queue: [SONGS[0]], nowPlaying: null });
     assert.deepEqual(await received, { type: "state", queue: [SONGS[0]], nowPlaying: null });
     ws.close();
