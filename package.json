@@ -32,6 +32,9 @@
       "!src/assets/packs/**/*",
       "!src/assets/soundfonts/**/*",
       "!src/assets/downloads/**/*",
+      "!src/assets/packs-1.8/**/*",
+      "!src/assets/vault.json",
+      "!src/assets/manifest.json",
       "package.json"
     ],
     "asarUnpack": [
