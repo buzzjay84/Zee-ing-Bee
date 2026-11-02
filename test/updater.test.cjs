@@ -50,7 +50,7 @@ test("notifies once a download finishes, and install() only acts once ready", ()
   assert.deepEqual(notified, { version: "2.0.0" });
   assert.deepEqual(updater.ready, { version: "2.0.0" });
   assert.equal(updater.install(), true);
-  assert.equal(autoUpdater.quitAndInstall.mock.calls.length, 1);
+  assert.deepEqual(autoUpdater.quitAndInstall.mock.calls[0].arguments, [true, true], "silent install, then relaunch");
 });
 
 test("checkNow() reports up to date when the feed has nothing newer", async () => {

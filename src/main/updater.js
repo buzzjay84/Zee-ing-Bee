@@ -41,7 +41,8 @@ function createUpdater({ app, autoUpdater, notify = () => {}, log = console } = 
   }
   function install() {
     if (!ready) return false;
-    autoUpdater.quitAndInstall();
+    // Silent install, then reopen the app: no installer pages to click through.
+    autoUpdater.quitAndInstall(true, true);
     return true;
   }
   return { start, stop, install, checkNow, get ready() { return ready; } };

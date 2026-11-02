@@ -4,7 +4,8 @@ import { wireKaraokeSearch } from "./karaoke-search.js";
 import { syllableFill } from "./lyrics.js";
 import { createBluetoothRemote } from "./bluetooth-remote.js";
 
-const { searchSongs } = window.ZBSearch;
+const { searchSongs, warm: warmSearch } = window.ZBSearch;
+const { withDefaults, summary, mountRows, wireSettingsDialog } = window.ZBSound;
 const $ = (id) => document.getElementById(id);
 const LIST_LIMIT = 400;
 
@@ -28,6 +29,9 @@ let playRequest = 0;
 let playerReady = null;
 let playbackId = 0;
 let musicVideoSaved = false;
+let mix = withDefaults({});
+let queueRestored = false;
+const mixViews = [];
 const isRecordedVideo = (song) => song?.mediaKind === "video" || song?.mediaKind === "music-video";
 
 // ---------- Library ----------
@@ -35,16 +39,21 @@ const isRecordedVideo = (song) => song?.mediaKind === "video" || song?.mediaKind
 function applyLibrary(data) {
   state.songs = data.songs;
   state.byNumber = new Map(data.songs.map((s) => [String(s.number), s]));
+  warmSearch(data.songs);
   state.folders = data.folders;
   state.settings = data.settings ?? {};
   $("asset-export-path").textContent = data.assetExportDir ?? "";
   midiPlayer.setGuide(state.settings.guideEnabled ?? true);
-  midiPlayer.setMix("melody", state.settings.guideVolume ?? 1.35);
-  $("guide-level").value = midiPlayer.mix.melody;
-  const mixerGuide = document.querySelector('[data-mix="melody"]');
-  if (mixerGuide) mixerGuide.value = midiPlayer.mix.melody;
   state.soundBanks = data.soundBanks;
   state.queue = state.queue.filter((s) => state.byNumber.has(String(s.number)));
+  if (!queueRestored) {
+    queueRestored = true;
+    const byPath = new Map(data.songs.map((s) => [s.path, s]));
+    state.queue = (state.settings.queue ?? []).filter((q) => byPath.has(q.path)).map((q) => (q.by ? { ...byPath.get(q.path), by: q.by } : byPath.get(q.path)));
+  }
+  // guideVolume is where the melody level was saved before the mixer was.
+  mix = withDefaults({ melody: state.settings.guideVolume, ...state.settings.mix });
+  applyMix();
   applyLyricStyle();
   renderChips();
   renderSongs();
@@ -152,6 +161,7 @@ function removeFromQueueByNumber(number) {
 /** Shared by the WiFi (IPC) and Bluetooth transports - both just hand it a {type, number}. */
 function applyRemoteAction(action) {
   if (action.type === "control") return applyRemoteControl(action.action);
+  if (action.type === "sound") return applyRemoteSound(action);
   const song = state.byNumber.get(String(action.number));
   if (!song) return;
   // The phone's nickname, shown beside the songs it reserves (many phones can share one desktop).
@@ -160,6 +170,18 @@ function applyRemoteAction(action) {
   if (action.type === "reserve") reserve(tagged);
   else if (action.type === "remove") removeFromQueueByNumber(action.number);
   else if (action.type === "singNow") { removeFromQueueByNumber(action.number); singNow(tagged); }
+}
+
+/** A phone's Settings changing the desktop's mixer or melody guide; values are clamped by withDefaults. */
+function applyRemoteSound({ mix: incoming, guide }) {
+  if (incoming && typeof incoming === "object") {
+    mix = withDefaults({ ...mix, ...incoming });
+    state.settings.mix = mix;
+    applyMix();
+    window.zb.setSettings({ mix });
+  }
+  if (typeof guide === "boolean" && guide !== midiPlayer.guide) $("btn-guide").onclick();
+  pushRemoteState();
 }
 
 /** Play/pause, next, previous and stop from a phone; stop skips the desktop's confirm prompt. */
@@ -182,12 +204,18 @@ const bluetoothRemote = createBluetoothRemote({ getSongs: () => state.songs, onC
 /** Keeps a paired phone's reserve list and now-playing banner in sync with the desktop. */
 function pushRemoteState() {
   const minimal = (s) => ({ number: s.number, title: s.title, artist: s.artist, by: s.by });
-  const payload = { queue: state.queue.map(minimal), nowPlaying: player.song ? minimal(player.song) : null, paused: Boolean(player.song && player.paused) };
+  const payload = { queue: state.queue.map(minimal), nowPlaying: player.song ? minimal(player.song) : null, paused: Boolean(player.song && player.paused), mix, guide: midiPlayer.guide };
   window.zb.pushRemoteState?.(payload).catch(() => {});
   if (bluetoothRemote.isConnected()) bluetoothRemote.sendState({ type: "state", ...payload }).catch(() => {});
 }
 
 function renderQueue() {
+  // Reserved songs wait through Stop and through closing the app.
+  const saved = state.queue.map((s) => ({ path: s.path, by: s.by }));
+  if (JSON.stringify(saved) !== JSON.stringify(state.settings.queue ?? [])) {
+    state.settings.queue = saved;
+    window.zb.setSettings({ queue: saved });
+  }
   $("queue-count").textContent = state.queue.length ? `(${state.queue.length})` : "";
   $("queue-empty").hidden = state.queue.length > 0;
   $("queue").replaceChildren(
@@ -309,7 +337,7 @@ async function singNow(song, { fromHistory = false } = {}) {
     player = isVideo ? videoPlayer : midiPlayer;
     enterStage(song);
     await player.play(song, source);
-    player.setVolume(Number($("master-volume").value));
+    player.setVolume(mix.volume);
     if (request !== playRequest) return;
     updateStageControls();
     renderQueue();
@@ -335,6 +363,7 @@ function enterStage(song) {
   $("tc-number").textContent = song.number;
   $("tc-title").textContent = song.title;
   $("tc-artist").textContent = song.artist;
+  $("tc-by").textContent = song.by ? `Reserved by ${song.by}` : "";
   $("title-card").classList.remove("gone");
   $("now-title").textContent = `${song.mediaKind === "music-video" ? "Listening" : song.number} · ${song.title}${song.artist ? ` — ${song.artist}` : ""}`;
   slots.forEach((s) => (s.index = -2));
@@ -364,7 +393,6 @@ function updateStageControls() {
   const hasGuide = !isVideo && player.melodyChannel !== -1;
   for (const id of ["key-down", "key-up", "btn-guide", "btn-mixer"]) $(id).disabled = isVideo;
   $("btn-guide").disabled = !hasGuide;
-  $("guide-level").disabled = !hasGuide;
   $("key-value").textContent = `Key ${player.key > 0 ? "+" : ""}${player.key}`;
   $("tempo-value").textContent = `${Math.round(player.tempo * 100)}%`;
   $("btn-guide").classList.toggle("on", hasGuide && player.guide);
@@ -453,7 +481,8 @@ function frame() {
     renderLyrics(t);
     countIn(t);
     const firstLine = player.lines[0]?.start ?? 4;
-    if (t > Math.min(5, Math.max(2, firstLine - 1))) $("title-card").classList.add("gone");
+    // The title card stays up through the intro and fades 2 seconds before the singing starts.
+    if (t > Math.max(2, firstLine - 2)) $("title-card").classList.add("gone");
     const dur = player.duration;
     $("progress-fill").style.width = dur ? `${Math.min((t / dur) * 100, 100)}%` : "0";
     publishDisplay();
@@ -465,8 +494,12 @@ function publishDisplay() {
   const now = performance.now();
   if (now - lastDisplayFrame < 33) return;
   lastDisplayFrame = now;
+  // The song, its singer and who reserved it stay in a corner after the title card fades.
+  const title = $("tc-title").textContent;
+  const label = title ? [`${title}${$("tc-artist").textContent ? ` — ${$("tc-artist").textContent}` : ""}`, $("tc-by").textContent].filter(Boolean).join(" · ") : "";
+  if ($("now-label").textContent !== label) $("now-label").textContent = label;
   window.zb.sendDisplayFrame({
-    text: Object.fromEntries(["tc-number", "tc-title", "tc-artist", "stage-number"].map((id) => [id, id === "stage-number" && $(id).hidden ? "" : $(id).textContent])),
+    text: Object.fromEntries(["tc-number", "tc-title", "tc-artist", "tc-by", "now-label", "stage-number"].map((id) => [id, id === "stage-number" && $(id).hidden ? "" : $(id).textContent])),
     titleGone: $("title-card").classList.contains("gone"),
     countIn: $("stage-countin")?.textContent ?? "",
     introUntil: player.lines[0]?.start ?? null,
@@ -515,21 +548,74 @@ function applyLyricStyle() {
   document.documentElement.style.setProperty("--sung", s.lyricColor ?? "#ffd34d");
 }
 
+// ---------- Sound mixer ----------
+
+function applyMix() {
+  for (const part of ["melody", "bass", "drums", "band"]) midiPlayer.setMix(part, mix[part]);
+  midiPlayer.setSound(mix);
+  videoPlayer.setVolume(mix.volume);
+  mixViews.forEach((refresh) => refresh());
+  renderSettingsSummary();
+}
+
+function changeMix(key, value) {
+  mix = { ...mix, [key]: value };
+  state.settings.mix = mix;
+  applyMix();
+  window.zb.setSettings({ mix });
+  pushRemoteState();
+}
+
+const bankName = (bank) => bank.name.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+async function pickSoundBank(bank) {
+  await window.zb.setSettings({ soundBank: bank.path });
+  applyLibrary(await window.zb.getLibrary());
+  if (player.song) return toast("The new sound plays from the next song.");
+  try {
+    await ensurePlayer();
+    await midiPlayer.playSample();
+  } catch (err) {
+    toast(err.message, 5000);
+  }
+}
+
+// ---------- Settings pages ----------
+
+function renderSettingsSummary() {
+  const bank = currentSoundBank();
+  $("sum-sound").textContent = `${bank ? bankName(bank) : "No sound bank"} · ${summary(mix)}`;
+  $("sum-singing").textContent = `Melody ${midiPlayer.guide ? "on" : "off"} · ${Math.round(mix.melody * 100)}%`;
+  $("sum-lyrics").textContent = `Size ${Math.round(((state.settings.lyricSize ?? 5) / 5) * 100)}%`;
+  $("set-guide").checked = midiPlayer.guide;
+  $("set-live-first").checked = Boolean(state.settings.liveFirst);
+}
+
 function renderSettings() {
-  const sel = $("soundbank-select");
   const current = currentSoundBank();
-  sel.replaceChildren(
+  $("instrument-list").replaceChildren(
     ...state.soundBanks.map((b) => {
-      const o = document.createElement("option");
-      o.value = b.path;
-      o.textContent = b.builtIn ? `${b.name} (built in)` : b.name;
-      o.selected = current?.path === b.path;
-      return o;
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = `instrument${b === current ? " on" : ""}`;
+      card.setAttribute("aria-pressed", String(b === current));
+      const name = document.createElement("b");
+      name.textContent = bankName(b);
+      const info = document.createElement("small");
+      info.textContent = [b.size ? `${Math.round(b.size / 1048576)} MB` : "", b.builtIn ? "Built in" : "Your own"].filter(Boolean).join(" · ");
+      card.append(name, info);
+      if (b === current) {
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = "In use";
+        card.append(badge);
+      }
+      card.onclick = () => pickSoundBank(b);
+      return card;
     }),
   );
-  $("soundbank-note").textContent = state.soundBanks.length
-    ? "The sound you pick stays, song after song."
-    : "No sound bank found. Add any General MIDI .sf2 file.";
+  if (!state.soundBanks.length) $("instrument-list").textContent = "No sound bank found. Add any General MIDI .sf2 file.";
+  renderSettingsSummary();
   $("folder-list").replaceChildren(
     ...state.folders.map((f) => {
       const li = document.createElement("li");
@@ -557,10 +643,24 @@ async function addFolder() {
 }
 
 function wire() {
-  $("master-volume").oninput = (event) => {
-    $("mix-volume").value = event.target.value;
-    if (player.song) player.setVolume(Number(event.target.value));
+  mixViews.push(
+    mountRows($("stage-mix"), ["melody", "bass", "drums", "band", "low", "high", "echo", "volume"], () => mix, changeMix),
+    mountRows($("settings-mix"), ["bass", "drums", "band", "low", "high", "echo", "volume"], () => mix, changeMix),
+    mountRows($("singing-mix"), ["melody"], () => mix, changeMix),
+  );
+  $("btn-mix-reset").onclick = () => {
+    mix = withDefaults({ melody: mix.melody });
+    changeMix("melody", mix.melody);
   };
+  $("set-guide").onchange = () => $("btn-guide").onclick();
+  $("set-open-display").onclick = () => window.zb.openDisplay();
+  $("set-live-first").onchange = (e) => {
+    state.settings.liveFirst = e.target.checked;
+    window.zb.setSettings({ liveFirst: e.target.checked });
+  };
+  $("set-open-remote").onclick = () => ($("settings").close(), $("btn-remote").click());
+  $("set-songbook").onclick = () => $("btn-songbook").click();
+  $("set-support").onclick = () => ($("settings").close(), $("btn-support").click());
   $("btn-music-videos").onclick = showMusicLibrary;
   $("music-close").onclick = () => $("music-library").close();
   $("btn-listen-instead").onclick = () => prepareMusicPlayback(null, player.song?.path);
@@ -577,7 +677,10 @@ function wire() {
     $("update-banner").hidden = false;
   });
   $("btn-update-later").onclick = () => { $("update-banner").hidden = true; };
-  window.zb.getVersion?.().then((v) => { $("app-version").textContent = `Version ${v}`; }).catch(() => {});
+  window.zb.getVersion?.().then((v) => {
+    $("app-version").textContent = `Version ${v}`;
+    document.title = `Zee-ing Bee v${v}`;
+  }).catch(() => {});
   $("btn-check-updates").onclick = async () => {
     $("update-check-status").textContent = "Checking…";
     const result = await window.zb.checkForUpdates();
@@ -653,9 +756,12 @@ function wire() {
   // Keep playback controls on the dashboard; only the lyrics go to the display.
   document.body.append(document.querySelector(".stage-bar"), $("mixer"));
   $("btn-display").onclick = () => window.zb.openDisplay();
+  let searchTimer;
   $("search").addEventListener("input", (e) => {
     state.query = e.target.value;
-    renderSongs();
+    // Wait for a pause in typing, so each key press doesn't redraw the list.
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(renderSongs, 120);
   });
   $("keypad").addEventListener("click", (e) => {
     const key = e.target.closest("button")?.dataset.key;
@@ -672,10 +778,16 @@ function wire() {
   for (const id of ["btn-add-folder", "btn-add-folder-2", "btn-add-folder-3"]) $(id).onclick = addFolder;
   $("btn-rescan").onclick = async () => applyLibrary(await window.zb.rescan());
   $("btn-songbook").onclick = async () => {
-    const file = await window.zb.makeSongbook();
-    if (file) toast("Songbook saved");
+    // A big library takes a while to lay out, so say it's working; and never fail silently.
+    toast("Making the songbook… this can take a minute.", 120000);
+    try {
+      const file = await window.zb.makeSongbook();
+      toast(file ? "Songbook saved" : "Songbook cancelled");
+    } catch (error) {
+      toast(`Couldn't make the songbook: ${error.message}`, 6000);
+    }
   };
-  $("btn-settings").onclick = () => $("settings").showModal();
+  $("btn-settings").onclick = wireSettingsDialog($("settings"));
   $("btn-number-pad").onclick = () => {
     const pad = $("number-pad");
     pad.hidden = !pad.hidden;
@@ -684,12 +796,11 @@ function wire() {
   $("btn-number-pad-close").onclick = () => $("btn-number-pad").click();
   $("btn-support").onclick = () => $("support").showModal();
   $("btn-add-soundbank").onclick = async () => applyLibrary(await window.zb.addSoundBank());
-  $("soundbank-select").onchange = async (e) => applyLibrary(await window.zb.setSettings({ soundBank: e.target.value }));
   $("lyric-size").oninput = (e) => {
     state.settings.lyricSize = Number(e.target.value);
     applyLyricStyle();
   };
-  $("lyric-size").onchange = (e) => window.zb.setSettings({ lyricSize: Number(e.target.value) });
+  $("lyric-size").onchange = (e) => (window.zb.setSettings({ lyricSize: Number(e.target.value) }), renderSettingsSummary());
   $("lyric-color").oninput = (e) => {
     state.settings.lyricColor = e.target.value;
     applyLyricStyle();
@@ -706,35 +817,13 @@ function wire() {
     state.settings.guideEnabled = midiPlayer.guide;
     window.zb.setSettings({ guideEnabled: midiPlayer.guide });
     updateStageControls();
+    renderSettingsSummary();
+    pushRemoteState();
   };
-  $("guide-level").oninput = (event) => {
-    const volume = Number(event.target.value);
-    midiPlayer.setMix("melody", volume);
-    state.settings.guideVolume = volume;
-    const mixerGuide = document.querySelector('[data-mix="melody"]');
-    if (mixerGuide) mixerGuide.value = volume;
-  };
-  $("guide-level").onchange = () => window.zb.setSettings({ guideVolume: midiPlayer.mix.melody });
   $("btn-pause").onclick = () => (player.togglePause(), updateStageControls(), pushRemoteState());
   $("btn-skip").onclick = () => player.song?.mediaKind === "music-video" ? playNextMusic() : playNext();
   $("btn-stop").onclick = () => stopSong();
   $("btn-mixer").onclick = () => ($("mixer").hidden = !$("mixer").hidden);
-  $("mixer").addEventListener("input", (e) => {
-    const part = e.target.dataset.mix;
-    if (part) player.setMix(part, Number(e.target.value));
-    if (part === "melody") {
-      state.settings.guideVolume = Number(e.target.value);
-      $("guide-level").value = state.settings.guideVolume;
-    }
-    if (e.target.id === "mix-echo") player.setEcho(Number(e.target.value));
-    if (e.target.id === "mix-volume") {
-      $("master-volume").value = e.target.value;
-      player.setVolume(Number(e.target.value));
-    }
-  });
-  $("mixer").addEventListener("change", (event) => {
-    if (event.target.dataset.mix === "melody") window.zb.setSettings({ guideVolume: midiPlayer.mix.melody });
-  });
   $("stage").addEventListener("mousemove", wakeStage);
 
   // Keyboard: on the song list, typing goes to the search box (it finds numbers too);

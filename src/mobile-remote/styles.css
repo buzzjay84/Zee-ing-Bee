@@ -50,6 +50,7 @@ button:disabled { opacity: 0.4; }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; position: relative; isolation: isolate; }
 .brand { position: relative; z-index: 1; flex-shrink: 0; }
 .brand > span { font-size: 22px; font-weight: 800; color: var(--honey-2); }
+.brand-version { display: block; text-align: center; font-size: 12px; color: var(--muted); }
 .brand-logo { display: block; width: 92px; height: 75px; object-fit: contain; transform-origin: 55% 70%; animation: bee-hover 3.6s ease-in-out infinite; }
 .brand-notes { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: -1; }
 .brand-notes span { position: absolute; left: 76px; top: 45%; font-size: 22px; font-weight: 700; color: var(--honey-2); opacity: 0; text-shadow: 0 0 12px rgba(242, 183, 5, 0.3); animation: music-note-flow 8s linear infinite; }
@@ -113,6 +114,8 @@ button:disabled { opacity: 0.4; }
 #queue-empty { margin: 4px 0 0; }
 
 .search-row { display: flex; gap: 10px; align-items: center; }
+/* Fixed width, so the search box doesn't resize as the count changes while typing. */
+#song-count { flex: 0 0 8.5em; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 #search {
   flex: 1; min-width: 0;
   background: var(--bg);
@@ -188,6 +191,26 @@ button:disabled { opacity: 0.4; }
   text-shadow: 0 3px 12px #000;
 }
 .title-card.gone { opacity: 0; }
+.now-label {
+  position: absolute; top: calc(10px + env(safe-area-inset-top)); left: 12px; max-width: calc(100% - 24px); z-index: 2;
+  padding: 4px 12px; border-radius: 999px; background: rgba(0, 0, 0, 0.55);
+  font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: opacity 0.6s;
+}
+.now-label:empty { display: none; }
+.countin { color: var(--honey-2); letter-spacing: 0.4em; }
+.intro-indicator {
+  position: absolute; bottom: 190px; left: 50%; transform: translateX(-50%);
+  display: grid; gap: 6px; min-width: 200px; padding: 12px 22px;
+  text-align: center; background: rgba(10, 8, 3, 0.78);
+  border: 1px solid rgba(255, 211, 77, 0.55); border-radius: 16px;
+}
+.intro-label { font-size: 20px; font-weight: 800; letter-spacing: 0.2em; color: var(--honey-2); }
+.intro-countdown { font-size: 14px; font-variant-numeric: tabular-nums; color: #fff; }
+.intro-progress { height: 4px; margin-top: 4px; background: rgba(255, 255, 255, 0.2); border-radius: 4px; overflow: hidden; }
+#intro-progress-fill { height: 100%; width: 0; background: var(--honey-2); }
+@media (orientation: landscape) and (max-height: 600px) { .intro-indicator { bottom: 90px; } }
+.title-card:not(.gone) ~ .now-label { opacity: 0; }
 .tc-number { font: 800 22px/1 ui-monospace, Consolas, monospace; color: var(--honey); }
 .tc-title { font-size: 34px; font-weight: 800; margin-top: 6px; line-height: 1.15; }
 .tc-artist { font-size: 18px; color: #f1e4c2; margin-top: 4px; }
@@ -200,7 +223,7 @@ button:disabled { opacity: 0.4; }
 }
 .line {
   font-family: "Arial", "Helvetica Neue", "Segoe UI", sans-serif;
-  font-size: clamp(26px, 7.5vw, 56px);
+  font-size: calc(clamp(26px, 7.5vw, 56px) * var(--lyric-scale, 1));
   font-weight: 900;
   line-height: 1.3;
   letter-spacing: 0.015em;
@@ -241,7 +264,48 @@ button:disabled { opacity: 0.4; }
   padding: 14px; display: grid; gap: 10px;
 }
 .mixer h3 { margin: 0; font-size: 15px; }
-.mixer label { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 10px; font-size: 14px; }
+.mixer { max-height: calc(100vh - 200px); overflow-y: auto; }
+.background-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+#stage > video:not(#background-video) { object-fit: contain; background: #000; }
+
+/* Landscape (the phone's auto-rotate): shorter title, lyrics and controls so all three fit. */
+@media (orientation: landscape) and (max-height: 600px) {
+  .title-card { top: 4%; }
+  .tc-title { font-size: 24px; }
+  .lyrics { top: 18%; bottom: 120px; }
+  .line { font-size: calc(clamp(22px, 5vw, 48px) * var(--lyric-scale, 1)); }
+  .stage-bar { flex-direction: row; align-items: center; padding: 10px 14px calc(8px + env(safe-area-inset-bottom)); }
+  .now { flex: 1; }
+  .controls { flex-wrap: nowrap; overflow-x: auto; }
+  .mixer { left: auto; width: min(380px, 60vw); bottom: 80px; max-height: calc(100vh - 100px); }
+}
+
+/* Settings: the same card list and pages as the desktop */
+#settings { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; width: min(560px, 94vw); max-height: 88vh; overflow-y: auto; }
+#settings::backdrop { background: rgba(0, 0, 0, 0.6); }
+.settings-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.settings-head h2 { flex: 1; margin: 0; font-size: 20px; }
+.settings-search { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.settings-hub { display: grid; gap: 10px; }
+.settings-card { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; text-align: left; padding: 12px; border-radius: var(--radius); }
+.settings-card b { display: block; font-size: 16px; }
+.settings-card small, .instrument small { display: block; color: var(--muted); font-size: 13px; }
+.card-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--bg); font-size: 20px; }
+.settings-box { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+.settings-box h3 { margin: 0 0 6px; font-size: 16px; color: var(--honey-2); }
+.settings-box p { margin: 0 0 10px; }
+.instrument-list { display: grid; gap: 8px; }
+.instrument { text-align: left; padding: 12px; border-radius: var(--radius); }
+.instrument.on { border-color: var(--honey); }
+.badge { display: inline-block; margin-top: 6px; padding: 2px 12px; border-radius: 999px; background: var(--honey); color: #1d1300; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.check { display: flex; gap: 10px; align-items: center; min-height: 44px; }
+.check input { width: 22px; height: 22px; accent-color: var(--honey); }
+.field { display: grid; grid-template-columns: 100px 1fr; align-items: center; gap: 10px; min-height: 48px; }
+.mix-rows { display: grid; gap: 8px; margin-bottom: 10px; }
+.mix-row { display: grid; grid-template-columns: 1fr 44px 64px 44px; align-items: center; gap: 6px; font-weight: 600; }
+.mix-row output { text-align: center; color: var(--honey-2); font-variant-numeric: tabular-nums; }
+.mix-step { width: 44px; height: 44px; padding: 0; border-radius: 50%; border-color: var(--honey); }
+.mix-step:disabled { opacity: 0.35; }
 input[type="range"] { accent-color: var(--honey); width: 100%; }
 
 /* The keypad floats over the songs when opened, so it shows up where you are instead of far below. */

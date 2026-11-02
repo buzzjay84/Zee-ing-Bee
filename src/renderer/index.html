@@ -17,6 +17,7 @@
   </script>
   <script src="../shared/search.js"></script>
   <script src="../shared/bluetooth.js"></script>
+  <script src="../shared/sound-settings.js"></script>
   <script type="module" src="app.js"></script>
 </head>
 <body>
@@ -95,7 +96,9 @@
       <div id="tc-number" class="tc-number"></div>
       <div id="tc-title" class="tc-title"></div>
       <div id="tc-artist" class="tc-artist"></div>
+      <div id="tc-by" class="tc-by"></div>
     </div>
+    <div id="now-label" class="now-label"></div>
     <div class="lyrics">
       <div class="line slot-0" id="slot-0"></div>
       <div class="line slot-1" id="slot-1"></div>
@@ -123,8 +126,6 @@
         </div>
         <button id="btn-guide" class="toggle on" aria-pressed="true" title="Play the vocal melody to help you follow the tune">Guide: On</button>
         <button id="btn-listen-instead" title="Stop singing and listen to the original music video (available once it has saved)">Listen instead</button>
-        <label class="guide-level" title="Playback volume">Volume <input id="master-volume" type="range" min="0" max="1.5" step="0.05" value="1" aria-label="Playback volume"></label>
-        <label class="guide-level" title="Guide melody volume">Guide volume <input id="guide-level" type="range" min="0" max="2" step="0.05" value="1.35" aria-label="Guide melody volume"></label>
         <button id="btn-mixer" title="Sound mixer">Mixer</button>
         <button id="btn-pause" title="Pause (Space)">❚❚</button>
         <button id="btn-skip" title="Next song">⏭</button>
@@ -134,12 +135,8 @@
 
     <div id="mixer" class="mixer" hidden>
       <h3>Sound mixer</h3>
-      <label>Melody <input type="range" min="0" max="2" step="0.05" value="1" data-mix="melody"></label>
-      <label>Bass <input type="range" min="0" max="2" step="0.05" value="1" data-mix="bass"></label>
-      <label>Drums <input type="range" min="0" max="2" step="0.05" value="1" data-mix="drums"></label>
-      <label>Band <input type="range" min="0" max="2" step="0.05" value="1" data-mix="band"></label>
-      <label>Echo <input type="range" min="0" max="1" step="0.05" value="0" id="mix-echo"></label>
-      <label>Volume <input type="range" min="0" max="1.5" step="0.05" value="1" id="mix-volume"></label>
+      <div id="stage-mix" class="mix-rows"></div>
+      <p class="muted small">Also in Settings → Sound.</p>
     </div>
   </div>
 
@@ -163,39 +160,102 @@
     <ol id="karaoke-results" class="karaoke-results"></ol>
   </dialog>
 
-  <!-- Settings -->
+  <!-- Settings: a list of cards, each opening its own page -->
   <dialog id="settings">
     <form method="dialog">
-      <h2>Settings</h2>
-      <h3>Sound bank</h3>
-      <div class="row">
-        <select id="soundbank-select"></select>
-        <button type="button" id="btn-add-soundbank" class="ghost">Add .sf2…</button>
+      <div class="settings-head">
+        <button type="button" id="settings-back" class="ghost" hidden>← Back</button>
+        <h2 id="settings-title">Settings</h2>
+        <button value="close" class="ghost settings-close" aria-label="Close settings">✕</button>
       </div>
-      <p id="soundbank-note" class="muted small"></p>
-
-      <h3>Song folders</h3>
-      <ul id="folder-list" class="folder-list"></ul>
-      <div class="row">
-        <button type="button" id="btn-add-folder-3" class="ghost">＋ Add folder</button>
-        <button type="button" id="btn-rescan" class="ghost">Look for new songs</button>
+      <input id="settings-search" class="settings-search" type="search" placeholder="Search settings" aria-label="Search settings">
+      <div id="settings-hub" class="settings-hub">
+        <button type="button" class="settings-card" data-page="sound" data-words="instruments sound bank sf2 mixer bass drums others treble tone echo volume"><span class="card-icon" aria-hidden="true">🔊</span><span><b>Sound</b><small id="sum-sound"></small></span><span aria-hidden="true">›</span></button>
+        <button type="button" class="settings-card" data-page="singing" data-words="melody guide tune volume"><span class="card-icon" aria-hidden="true">🎤</span><span><b>Singing</b><small id="sum-singing"></small></span><span aria-hidden="true">›</span></button>
+        <button type="button" class="settings-card" data-page="lyrics" data-words="lyrics size colour color words"><span class="card-icon" aria-hidden="true">📝</span><span><b>Lyrics</b><small id="sum-lyrics"></small></span><span aria-hidden="true">›</span></button>
+        <button type="button" class="settings-card" data-page="songs" data-words="folders midi kar songs sounds downloaded assets look for new"><span class="card-icon" aria-hidden="true">＋</span><span><b>Your songs and sounds</b><small>Your own song folders, sound banks and downloads</small></span><span aria-hidden="true">›</span></button>
+        <button type="button" class="settings-card" data-page="tv" data-words="tv display screen phone remote bluetooth qr video background live performance music video"><span class="card-icon" aria-hidden="true">📺</span><span><b>TV and remote</b><small>Show lyrics on a TV, or let phones control it</small></span><span aria-hidden="true">›</span></button>
+        <button type="button" class="settings-card" data-page="about" data-words="updates version about support songbook pdf"><span class="card-icon" aria-hidden="true">ⓘ</span><span><b>Songs, app and about</b><small>Songbook · updates · about</small></span><span aria-hidden="true">›</span></button>
+        <p id="settings-none" class="muted small" hidden>No setting matches that.</p>
       </div>
 
-      <h3>Downloaded assets</h3>
-      <button id="btn-open-assets" type="button">Open downloaded assets</button>
-      <p id="asset-export-path" class="muted small"></p>
-      <h3>Lyrics</h3>
-      <label class="row">Size <input type="range" id="lyric-size" min="3" max="8" step="0.25"></label>
-      <label class="row">Sung colour <input type="color" id="lyric-color"></label>
+      <section class="settings-page" data-page="sound" data-title="Sound" hidden>
+        <div class="settings-box">
+          <h3>Instruments</h3>
+          <p class="muted small">The sound every song is played with. Click one to switch; you hear a short sample.</p>
+          <div id="instrument-list" class="instrument-list"></div>
+          <button type="button" id="btn-add-soundbank" class="ghost">＋ Add your own .sf2…</button>
+        </div>
+        <div class="settings-box">
+          <h3>Sound mixer</h3>
+          <p class="muted small">How loud the bass, the drums and the rest of the band are, the low tone and treble, the echo and the volume. The same as Mixer on the stage. The tune's own volume is under Singing.</p>
+          <div id="settings-mix" class="mix-rows"></div>
+          <button type="button" id="btn-mix-reset" class="ghost">Reset the mixer</button>
+        </div>
+      </section>
 
-      <h3>About</h3>
-      <div class="row">
-        <p id="app-version" class="muted small"></p>
-        <button type="button" id="btn-check-updates" class="ghost">Check for updates</button>
-      </div>
-      <p id="update-check-status" class="muted small"></p>
+      <section class="settings-page" data-page="singing" data-title="Singing" hidden>
+        <div class="settings-box">
+          <h3>Melody</h3>
+          <p class="muted small">A soft guide that plays the tune, so you can follow it.</p>
+          <label class="row"><input type="checkbox" id="set-guide"> Play the melody</label>
+          <div id="singing-mix" class="mix-rows"></div>
+        </div>
+      </section>
 
-      <div class="row end"><button value="close" class="primary">Done</button></div>
+      <section class="settings-page" data-page="lyrics" data-title="Lyrics" hidden>
+        <div class="settings-box">
+          <label class="row">Size <input type="range" id="lyric-size" min="3" max="8" step="0.25"></label>
+          <label class="row">Sung colour <input type="color" id="lyric-color"></label>
+        </div>
+      </section>
+
+      <section class="settings-page" data-page="songs" data-title="Your songs and sounds" hidden>
+        <div class="settings-box">
+          <h3>Song folders</h3>
+          <ul id="folder-list" class="folder-list"></ul>
+          <div class="row">
+            <button type="button" id="btn-add-folder-3" class="ghost">＋ Add folder</button>
+            <button type="button" id="btn-rescan" class="ghost">Look for new songs</button>
+          </div>
+        </div>
+        <div class="settings-box">
+          <h3>Downloaded assets</h3>
+          <button id="btn-open-assets" type="button">Open downloaded assets</button>
+          <p id="asset-export-path" class="muted small"></p>
+        </div>
+      </section>
+
+      <section class="settings-page" data-page="tv" data-title="TV and remote" hidden>
+        <div class="settings-box">
+          <h3>TV</h3>
+          <p class="muted small">Opens the lyrics in their own window. Drag it to the TV and make it full screen.</p>
+          <button type="button" id="set-open-display">Open display</button>
+          <label class="row"><input type="checkbox" id="set-live-first"> Prefer live performances (concerts and live sessions) over music videos behind the lyrics</label>
+          <p class="muted small">Takes effect from the next song. 1080p videos always come first. TV and radio show uploads are never used, since they carry the station's logo.</p>
+        </div>
+        <div class="settings-box">
+          <h3>Phone remote</h3>
+          <p class="muted small">Phones can reserve songs and control playback over WiFi or Bluetooth.</p>
+          <button type="button" id="set-open-remote">Connect a phone</button>
+        </div>
+      </section>
+
+      <section class="settings-page" data-page="about" data-title="Songs, app and about" hidden>
+        <div class="settings-box">
+          <h3>Songbook</h3>
+          <button type="button" id="set-songbook">Save the songbook (PDF)</button>
+        </div>
+        <div class="settings-box">
+          <h3>About</h3>
+          <div class="row">
+            <p id="app-version" class="muted small"></p>
+            <button type="button" id="btn-check-updates" class="ghost">Check for updates</button>
+          </div>
+          <p id="update-check-status" class="muted small"></p>
+          <button type="button" id="set-support" class="ghost">Support Zee-ing Bee</button>
+        </div>
+      </section>
     </form>
   </dialog>
 
@@ -225,7 +285,7 @@
       <h2>Support Zee-ing Bee</h2>
       <p class="muted small">Zee-ing Bee is free. If it brings you joy, you can support its development with any amount. Scan with any InstaPay-enabled bank or e-wallet.</p>
       <img id="support-qr" src="../assets/branding/support-qr.png" alt="Support QR code" width="260" height="260">
-      <p class="small">Developed by <b>Jonybhee A. Bazan</b></p>
+      <p class="small">Developed by <b>buzzjay</b></p>
       <p class="muted small">Thank you for singing with us!</p>
       <div class="row end"><button value="close" class="primary">Close</button></div>
     </form>

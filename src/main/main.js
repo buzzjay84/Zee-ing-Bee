@@ -6,8 +6,8 @@ const library = require("./library");
 const { prepareBundledSongs } = require("./bundled-songs");
 const { buildSongbookHtml } = require("./songbook");
 const { indexVideos, matchVideo } = require("./videos");
-const { createOnlineSearch } = require("./online-videos");
-const { atTargetQuality, createVideoCache, cancelVideoDownloads } = require("./video-cache");
+const { createOnlineSearch, preferHD, looksWatermarked } = require("./online-videos");
+const { atTargetQuality, createVideoCache, cancelVideoDownloads, ensureDownloader, probeOnlineHeight } = require("./video-cache");
 const { validateQuery, searchKaraoke } = require("./karaoke");
 const { mediaResponse } = require("./media-response");
 const { createAssetExporter } = require("./asset-exports");
@@ -122,13 +122,23 @@ function bundledSoundBanks() {
   }
 }
 
+function fileSize(file) {
+  try { return fs.statSync(file).size; } catch { return 0; }
+}
+
 function soundBanks() {
   return [...bundledSoundBanks(), ...(lib.settings.soundBanks ?? [])];
 }
 
 async function loadLibrary() {
   lib = library.load(libraryFile());
-  searchOnlineVideos = createOnlineSearch(path.join(app.getPath("userData"), "music-video-cache.json"));
+  // Same yt-dlp the video saver installs; it reports each candidate's best resolution so 1080p wins.
+  let heightTool = null;
+  const probeHeight = async (id) => {
+    heightTool ??= ensureDownloader(path.join(app.getPath("userData"), "music-videos", "tools")).catch((error) => { heightTool = null; throw error; });
+    return probeOnlineHeight(await heightTool, id);
+  };
+  searchOnlineVideos = createOnlineSearch(path.join(app.getPath("userData"), "music-video-cache.json"), { probeHeight });
   const exportsRoot = app.isPackaged ? path.join(app.getPath("documents"), "Zee-ing Bee", "assets", "downloads") : path.join(appRoot, "src", "assets", "downloads");
   assetExporter = createAssetExporter(exportsRoot);
   savedVideos = createVideoCache(path.join(app.getPath("userData"), "music-videos"), { withAudio: true, onSaved: (entry, song) => assetExporter.exportFile(entry, song, "music-videos") });
@@ -143,7 +153,9 @@ async function loadLibrary() {
 /** Songs from bundled packs (a full install) and from packs downloaded in the background (app only). */
 async function songPackFolders() {
   const extracted = path.join(app.getPath("userData"), "bundled-songs");
-  return [...await prepareBundledSongs(bundledPacksDir(), extracted), ...await prepareBundledSongs(downloadedPacksDir(), extracted)];
+  const folders = [...await prepareBundledSongs(bundledPacksDir(), extracted), ...await prepareBundledSongs(downloadedPacksDir(), extracted)];
+  // A pack both bundled and downloaded unpacks to the same folder; list it once.
+  return [...new Map(folders.map((folder) => [folder.path, folder])).values()];
 }
 
 /** Adds newly downloaded packs to the open library, keeping the person's own folders. */
@@ -202,13 +214,23 @@ function publicState() {
     folders: lib.folders,
     settings: lib.settings,
     assetExportDir: assetExporter.root,
-    soundBanks: soundBanks().map(({ name, path: p, builtIn }) => ({ name, path: p, builtIn: Boolean(builtIn) })),
+    soundBanks: soundBanks().map(({ name, path: p, builtIn }) => ({ name, path: p, builtIn: Boolean(builtIn), size: fileSize(p) })),
   };
 }
 
 function persist() {
+  clearTimeout(settingsSaveTimer);
+  settingsSaveTimer = null;
   library.save(libraryFile(), lib);
   return publicState();
+}
+
+// Settings change on every mixer tap and reservation; rewriting the whole library file (and
+// sending every song back) each time made the app stutter, so those saves are batched.
+let settingsSaveTimer = null;
+function saveSettingsSoon() {
+  clearTimeout(settingsSaveTimer);
+  settingsSaveTimer = setTimeout(() => { settingsSaveTimer = null; library.save(libraryFile(), lib); }, 500);
 }
 
 /** The window may only read songs in the library and known sound banks. */
@@ -346,10 +368,11 @@ function registerIpc() {
     const song = lib.songs.find((s) => s.path === songPath);
     if (!song) return [];
     const saved = savedVideos.get(song);
-    const cached = saved?.hasAudio && atTargetQuality(saved) ? saved : null;
+    const cached = saved?.hasAudio && atTargetQuality(saved) && !looksWatermarked(saved.title) ? saved : null;
     const notify = (state) => { if (!win.isDestroyed()) win.webContents.send("video:status", { songPath, state }); };
     notify(cached ? "saved-searching" : "searching");
-    const items = await searchOnlineVideos(song, { refresh: true });
+    // 1080p first; "Prefer live performances" in Settings puts live ahead of music videos.
+    const items = preferHD(await searchOnlineVideos(song, { refresh: true }), { liveFirst: Boolean(lib.settings.liveFirst) });
     notify(cached && (!items.length || items[0].id === cached.id) ? "saved" : items.length ? "loading" : "background");
     return items;
   });
@@ -360,7 +383,9 @@ function registerIpc() {
       return music ? { matched: true, karaoke: true, url: videoUrl(music.path) } : null;
     }
     if (song.mediaKind === "video") return { matched: true, karaoke: true, url: videoUrl(song.path) };
-    const cached = savedVideos.get(song);
+    // A video saved under the older rules from a TV or radio show carries its logo; skip it.
+    const saved = savedVideos.get(song);
+    const cached = saved && !looksWatermarked(saved.title) ? saved : null;
     const match = cached ?? matchVideo(musicVideos, song);
     const dir = path.join(appRoot, "src", "assets", "videos");
     const backgrounds = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /\.(mp4|webm|m4v)$/i.test(f)) : [];
@@ -423,7 +448,7 @@ function registerIpc() {
 
   ipcMain.handle("settings:set", (_e, patch) => {
     lib.settings = { ...lib.settings, ...patch };
-    return persist();
+    saveSettingsSoon();
   });
 
   ipcMain.handle("soundbank:add", async () => {
@@ -455,10 +480,16 @@ function registerIpc() {
     if (res.canceled || !res.filePath) return null;
     const page = new BrowserWindow({ show: false, webPreferences: { javascript: false } });
     try {
-      const html = buildSongbookHtml(lib.songs, APP_NAME);
-      await page.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-      const pdf = await page.webContents.printToPDF({ pageSize: "A4", printBackground: true });
-      await fs.promises.writeFile(res.filePath, pdf);
+      // A full library makes ~10 MB of HTML, far past what a data: URL can carry, so it goes through a temp file.
+      const htmlFile = path.join(app.getPath("temp"), `zee-ing-bee-songbook-${process.pid}.html`);
+      await fs.promises.writeFile(htmlFile, buildSongbookHtml(lib.songs, APP_NAME));
+      try {
+        await page.loadFile(htmlFile);
+        const pdf = await page.webContents.printToPDF({ pageSize: "A4", printBackground: true });
+        await fs.promises.writeFile(res.filePath, pdf);
+      } finally {
+        fs.promises.rm(htmlFile, { force: true }).catch(() => {});
+      }
     } finally {
       page.destroy();
     }
@@ -647,4 +678,4 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
-app.on("before-quit", () => { cancelVideoDownloads(); updater?.stop(); remoteServer?.stop(); });
+app.on("before-quit", () => { if (settingsSaveTimer) persist(); cancelVideoDownloads(); updater?.stop(); remoteServer?.stop(); });

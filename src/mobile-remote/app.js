@@ -6,7 +6,8 @@ import { createSync } from "./sync.js";
 import { createPackStore } from "./packs.js";
 import { findUpdate } from "./update.js";
 
-const { searchSongs } = window.ZBSearch;
+const { searchSongs, warm: warmSearch } = window.ZBSearch;
+const { withDefaults, summary, mountRows, wireSettingsDialog } = window.ZBSound;
 const $ = (id) => document.getElementById(id);
 
 const state = {
@@ -32,6 +33,205 @@ const midiPlayer = new Player();
 const videoPlayer = new VideoPlayer();
 let player = midiPlayer;
 let midiReady = null;
+// The karaoke video is the picture on the phone's own stage (the desktop shows it on its display instead).
+videoPlayer.media.className = "background-video";
+$("stage").querySelector(".backdrop").after(videoPlayer.media);
+
+// ---------- Settings (kept on this phone) ----------
+
+const SETTINGS_KEY = "zb-settings";
+const settings = (() => {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) ?? {}; } catch { return {}; }
+})();
+let mix = withDefaults(settings.mix);
+const mixViews = [];
+let backgroundUrls = null;
+
+function saveSettings(patch) {
+  Object.assign(settings, patch);
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* just won't be remembered */ }
+  renderSettingsSummary();
+}
+
+function applyMix() {
+  for (const part of ["melody", "bass", "drums", "band"]) midiPlayer.setMix(part, mix[part]);
+  midiPlayer.setSound(mix);
+  videoPlayer.setVolume(mix.volume);
+  mixViews.forEach((refresh) => refresh());
+}
+
+/** Connected to a desktop, Settings shows and changes the desktop's sound; otherwise this phone's own. */
+const shownMix = () => (isRemote() && state.remoteSound?.mix) || mix;
+const shownGuide = () => (isRemote() ? state.remoteSound?.guide ?? midiPlayer.guide : midiPlayer.guide);
+
+function sendSound(change) {
+  const retry = () => toast("Reconnecting to the desktop… try again in a moment.");
+  const message = { type: "sound", ...change };
+  if (state.mode === "bluetooth") return modeWatcher.bleTransport.send(message).catch(retry);
+  if (state.ws?.readyState !== WebSocket.OPEN) return retry();
+  state.ws.send(JSON.stringify(message));
+}
+
+/** The desktop's mixer and guide, from its state messages. */
+function applyRemoteSound(message) {
+  if (!message.mix) return;
+  state.remoteSound = { mix: withDefaults(message.mix), guide: message.guide !== false };
+  mixViews.forEach((refresh) => refresh());
+  renderSettingsSummary();
+}
+
+function changeMix(key, value) {
+  if (isRemote()) {
+    state.remoteSound = { ...state.remoteSound, mix: { ...shownMix(), [key]: value } };
+    mixViews.forEach((refresh) => refresh());
+    renderSettingsSummary();
+    return sendSound({ mix: state.remoteSound.mix });
+  }
+  mix = { ...mix, [key]: value };
+  applyMix();
+  saveSettings({ mix });
+}
+
+function applyLyricStyle() {
+  document.documentElement.style.setProperty("--lyric-scale", settings.lyricScale ?? 1);
+  document.documentElement.style.setProperty("--sung", settings.lyricColor ?? "#ffd34d");
+}
+
+/** The desktop's sound bank (synced while paired) and the one downloaded with the song packs. */
+async function soundBanks() {
+  return (await Promise.all([sync.getSoundBank(), packs.getSoundBank()])).filter(Boolean);
+}
+
+async function currentSoundBank() {
+  const banks = await soundBanks();
+  return banks.find((bank) => bank.name === settings.soundBank) ?? banks[0];
+}
+
+const bankName = (bank) => bank.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+async function pickSoundBank(bank) {
+  saveSettings({ soundBank: bank.name });
+  renderInstruments();
+  if (player.song) return toast("The new sound plays from the next song.");
+  try {
+    midiReady ??= midiPlayer.init();
+    await midiReady;
+    await midiPlayer.loadSoundBank(bank.name, bank.data);
+    await midiPlayer.playSample();
+  } catch (error) {
+    toast(error.message, 4000);
+  }
+}
+
+async function renderInstruments() {
+  const list = $("instrument-list");
+  if (isRemote()) return (list.textContent = "Connected to a desktop: pick its instrument in the desktop's Settings.");
+  const [banks, current] = await Promise.all([soundBanks(), currentSoundBank()]);
+  list.replaceChildren(
+    ...banks.map((bank) => {
+      const on = bank.name === current?.name;
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = `instrument${on ? " on" : ""}`;
+      card.setAttribute("aria-pressed", String(on));
+      const name = document.createElement("b");
+      name.textContent = bankName(bank);
+      const info = document.createElement("small");
+      info.textContent = `${Math.round(bank.data.byteLength / 1048576)} MB`;
+      card.append(name, info);
+      if (on) {
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = "In use";
+        card.append(badge);
+      }
+      card.onclick = () => pickSoundBank(bank);
+      return card;
+    }),
+  );
+  if (!banks.length) list.textContent = "No sound bank yet. It downloads with the songs, or comes from a desktop.";
+}
+
+function renderSettingsSummary() {
+  const sound = shownMix();
+  if (isRemote()) $("sum-sound").textContent = `The desktop's sound · ${summary(sound)}`;
+  else currentSoundBank().then((bank) => { $("sum-sound").textContent = `${bank ? bankName(bank) : "No sound bank"} · ${summary(sound)}`; });
+  $("sum-singing").textContent = `Melody ${shownGuide() ? "on" : "off"} · ${Math.round(sound.melody * 100)}%`;
+  $("sum-lyrics").textContent = `Size ${Math.round((settings.lyricScale ?? 1) * 100)}%`;
+  $("sum-screen").textContent = `Background: ${settings.backgrounds === false ? "Off" : "Videos"}`;
+  $("set-guide").checked = shownGuide();
+  $("set-backgrounds").checked = settings.backgrounds !== false;
+  $("lyric-size").value = settings.lyricScale ?? 1;
+  $("lyric-color").value = settings.lyricColor ?? "#ffd34d";
+}
+
+/** A looping video behind the lyrics of MIDI songs, from the backgrounds downloaded with the packs. */
+async function startBackground() {
+  const bg = $("background-video");
+  bg.hidden = true;
+  if (settings.backgrounds === false || player !== midiPlayer) return;
+  backgroundUrls ??= (await packs.getBackgrounds()).map((blob) => URL.createObjectURL(blob));
+  $("backgrounds-note").textContent = backgroundUrls.length ? "" : "No background videos on this phone yet. They download after the songs, on WiFi.";
+  if (!backgroundUrls.length || player !== midiPlayer || !player.song) return;
+  bg.src = backgroundUrls[Math.floor(Math.random() * backgroundUrls.length)];
+  bg.hidden = false;
+  bg.play().catch(() => {});
+}
+
+function stopBackground() {
+  const bg = $("background-video");
+  bg.hidden = true;
+  bg.pause();
+  bg.removeAttribute("src");
+}
+
+midiPlayer.setGuide(settings.guide ?? true);
+applyMix();
+applyLyricStyle();
+mixViews.push(
+  mountRows($("stage-mix"), ["melody", "bass", "drums", "band", "low", "high", "echo", "volume"], shownMix, changeMix),
+  mountRows($("settings-mix"), ["bass", "drums", "band", "low", "high", "echo", "volume"], shownMix, changeMix),
+  mountRows($("singing-mix"), ["melody"], shownMix, changeMix),
+);
+const openSettings = wireSettingsDialog($("settings"));
+$("btn-settings").onclick = () => {
+  renderSettingsSummary();
+  renderInstruments();
+  openSettings();
+};
+$("btn-mix-reset").onclick = () => {
+  const melody = shownMix().melody;
+  if (isRemote()) {
+    state.remoteSound = { ...state.remoteSound, mix: withDefaults({ melody }) };
+    return changeMix("melody", melody);
+  }
+  mix = withDefaults({ melody });
+  changeMix("melody", melody);
+};
+$("set-guide").onchange = (e) => {
+  if (isRemote()) {
+    state.remoteSound = { ...state.remoteSound, guide: e.target.checked };
+    renderSettingsSummary();
+    return sendSound({ guide: e.target.checked });
+  }
+  midiPlayer.setGuide(e.target.checked);
+  saveSettings({ guide: e.target.checked });
+  updateStageControls();
+};
+$("lyric-size").oninput = (e) => ((settings.lyricScale = Number(e.target.value)), applyLyricStyle());
+$("lyric-size").onchange = (e) => saveSettings({ lyricScale: Number(e.target.value) });
+$("lyric-color").oninput = (e) => ((settings.lyricColor = e.target.value), applyLyricStyle());
+$("lyric-color").onchange = (e) => saveSettings({ lyricColor: e.target.value });
+$("set-backgrounds").onchange = (e) => {
+  saveSettings({ backgrounds: e.target.checked });
+  if (!player.song) return;
+  if (e.target.checked) startBackground();
+  else stopBackground();
+};
+$("app-version").textContent = window.ZB_VERSION ? `Version ${window.ZB_VERSION}` : "";
+$("brand-version").textContent = window.ZB_VERSION ? `v${window.ZB_VERSION}` : "";
+if (window.ZB_VERSION) document.title = `Zee-ing Bee Mobile v${window.ZB_VERSION}`;
+$("set-support").onclick = () => ($("settings").close(), $("support").showModal());
 
 // ---------- Shared rendering ----------
 
@@ -51,6 +251,8 @@ function renderStatus() {
   $("btn-disconnect").hidden = !isRemote();
   $("btn-nickname").hidden = !isRemote();
   $("btn-nickname").textContent = nickname() ? `Name: ${nickname()}` : "Set your name";
+  // Connecting or disconnecting switches the mixer between the desktop's sound and this phone's.
+  mixViews.forEach((refresh) => refresh());
 }
 
 const NICKNAME_KEY = "zb-nickname";
@@ -105,7 +307,11 @@ function renderSongs() {
   const pool = state.category === "All" ? all : all.filter((s) => s.category === state.category);
   const result = state.mode === "bluetooth" ? { songs: all, mode: "all" } : searchSongs(pool, state.query);
   const list = result.songs;
-  state.byNumber = new Map(state.songs.map((s) => [String(s.number), s]));
+  if (state.byNumberFor !== state.songs) {
+    state.byNumberFor = state.songs;
+    state.byNumber = new Map(state.songs.map((s) => [String(s.number), s]));
+    warmSearch(state.songs);
+  }
   $("search-note").hidden = result.mode === "all";
   $("search-note").textContent = result.mode === "exact" ? `${result.exactCount} exact match${result.exactCount === 1 ? "" : "es"}${result.suggestedCount ? ` · ${result.suggestedCount} suggested` : ""}` : list.length ? "No exact match. Showing suggested songs." : "No matches found.";
   $("song-count").textContent = `${list.length} song${list.length === 1 ? "" : "s"}`;
@@ -141,7 +347,12 @@ function singNow(song) {
   return isRemote() ? sendRemote("singNow", song) : singNowLocal(song);
 }
 
+const QUEUE_KEY = "zb-queue";
 function renderQueue() {
+  // In Standalone mode the reserved songs are this phone's own: they wait through Stop and restarts.
+  if (state.mode === "standalone") {
+    try { localStorage.setItem(QUEUE_KEY, JSON.stringify(state.queue)); } catch { /* just won't be remembered */ }
+  }
   $("queue-count").textContent = state.queue.length ? `(${state.queue.length})` : "";
   $("queue").replaceChildren(
     ...state.queue.map((s, i) => {
@@ -213,8 +424,9 @@ $("btn-sing-now").onclick = () => {
 let bleSearchTimer;
 $("search").addEventListener("input", (event) => {
   state.query = event.target.value;
-  if (state.mode !== "bluetooth") return renderSongs();
   clearTimeout(bleSearchTimer);
+  // Wait for a pause in typing, so each key press doesn't redraw the list.
+  if (state.mode !== "bluetooth") return (bleSearchTimer = setTimeout(renderSongs, 120));
   bleSearchTimer = setTimeout(() => modeWatcher.bleTransport.send({ type: "search", query: state.query }).catch(() => {}), 400);
 });
 
@@ -280,6 +492,7 @@ function connectWs() {
   ws.onmessage = (event) => {
     const message = JSON.parse(event.data);
     if (message.type !== "state") return;
+    applyRemoteSound(message);
     state.queue = message.queue;
     state.nowPlaying = message.nowPlaying;
     state.paused = Boolean(message.paused);
@@ -338,6 +551,7 @@ function handleBleMessage(message) {
     state.bleResults = message.songs;
     renderSongs();
   } else if (message.type === "state") {
+    applyRemoteSound(message);
     state.queue = message.queue;
     state.nowPlaying = message.nowPlaying;
     state.paused = Boolean(message.paused);
@@ -376,6 +590,7 @@ function enterStage(song) {
   $("tc-number").textContent = song.number ?? "";
   $("tc-title").textContent = song.title;
   $("tc-artist").textContent = song.artist ?? "";
+  $("now-label").textContent = `${song.title}${song.artist ? ` — ${song.artist}` : ""}`;
   $("now-title").textContent = `${song.number ? `${song.number} · ` : ""}${song.title}`;
   $("title-card").classList.remove("gone");
   $("mixer").hidden = true;
@@ -384,6 +599,8 @@ function enterStage(song) {
 
 function leaveStage() {
   player.stop();
+  stopBackground();
+  videoPlayer.media.hidden = true;
   state.nowPlaying = null;
   $("stage").hidden = true;
   $("home").hidden = false;
@@ -409,18 +626,24 @@ async function singLocal(song) {
   const bytes = song.pack ? await packs.getSongBytes(song) : await sync.getSongBytes(song.number, song.mediaKind);
   if (!bytes) throw new Error(isVideo ? "This video hasn't been saved for offline play." : "This song hasn't been downloaded for offline play yet.");
   enterStage(song);
+  // A karaoke video has its lyrics in the picture.
+  $("stage").querySelector(".lyrics").hidden = isVideo;
   state.nowPlaying = song;
   if (isVideo) {
+    stopBackground();
     player = videoPlayer;
+    videoPlayer.media.hidden = false;
     await player.play(song, URL.createObjectURL(new Blob([bytes])));
   } else {
-    const bank = (await sync.getSoundBank()) ?? (await packs.getSoundBank());
+    videoPlayer.media.hidden = true;
+    const bank = await currentSoundBank();
     if (!bank) throw new Error("No sound bank has synced from a desktop yet.");
     midiReady ??= midiPlayer.init();
     await midiReady;
     await midiPlayer.loadSoundBank(bank.name, bank.data);
     player = midiPlayer;
     await player.play(song, bytes);
+    startBackground();
   }
   updateStageControls();
 }
@@ -436,6 +659,7 @@ async function standaloneCatalog() {
 function renderPackProgress({ phase, percent }) {
   const el = $("packs-banner");
   el.hidden = phase === "done";
+  if (phase === "done") backgroundUrls = null; // pick up backgrounds that just finished downloading
   el.textContent = phase === "soundbank" ? `Downloading sound bank… ${percent}%` : phase === "retrying" ? "Song download paused · Retrying…" : `Downloading songs… ${percent}%`;
 }
 
@@ -452,10 +676,15 @@ async function enterStandaloneMode() {
   state.mode = "standalone";
   state.ws?.close();
   state.ws = null;
-  state.queue = [];
+  // Restored before the catalog loads, so nothing in between can save an empty list over it.
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem(QUEUE_KEY)) ?? []; } catch { /* nothing saved */ }
+  state.queue = saved;
   state.nowPlaying = null;
   renderStatus();
   state.songs = await standaloneCatalog();
+  const byNumber = new Map(state.songs.map((song) => [String(song.number), song]));
+  state.queue = state.queue.map((song) => byNumber.get(String(song.number))).filter(Boolean);
   renderChips();
   renderSongs();
   renderQueue();
@@ -479,14 +708,12 @@ $("key-down").onclick = () => (player.setKey(player.key - 1), updateStageControl
 $("key-up").onclick = () => (player.setKey(player.key + 1), updateStageControls());
 $("tempo-down").onclick = () => (player.setTempo(player.tempo - 0.05), updateStageControls());
 $("tempo-up").onclick = () => (player.setTempo(player.tempo + 0.05), updateStageControls());
-$("btn-guide").onclick = () => (midiPlayer.setGuide(!midiPlayer.guide), updateStageControls());
+$("btn-guide").onclick = () => {
+  midiPlayer.setGuide(!midiPlayer.guide);
+  saveSettings({ guide: midiPlayer.guide });
+  updateStageControls();
+};
 $("btn-mixer").onclick = () => ($("mixer").hidden = !$("mixer").hidden);
-$("mixer").addEventListener("input", (event) => {
-  const value = Number(event.target.value);
-  if (event.target.dataset.mix) player.setMix(event.target.dataset.mix, value);
-  if (event.target.id === "mix-echo") player.setEcho(value);
-  if (event.target.id === "mix-volume") player.setVolume(value);
-});
 
 // ---------- Lyrics (Standalone mode only - the remote modes never sing locally) ----------
 
@@ -535,12 +762,29 @@ function renderLyrics(t) {
   }
 }
 
+/** Same as the desktop: an INTRO countdown until the vocals, then count-in dots for the last 3 seconds. */
+function renderIntro(t) {
+  const first = player.lines?.[0]?.start;
+  const inIntro = Number.isFinite(first) && t < first;
+  $("intro-indicator").hidden = !inIntro || first - t <= 3;
+  $("countin").hidden = !inIntro || first - t > 3;
+  if (!inIntro) return;
+  $("countin").textContent = "● ".repeat(Math.ceil(first - t)).trim();
+  const remaining = Math.ceil((first - t) / Math.max(player.tempo || 1, 0.5));
+  $("intro-countdown").textContent = `Vocals in ${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}${player.paused ? " · Paused" : ""}`;
+  $("intro-progress-fill").style.width = `${Math.max(0, Math.min(100, (t / first) * 100))}%`;
+}
+
 setInterval(() => {
   if (state.mode !== "standalone" || !player.song) return;
   const t = player.time;
   renderLyrics(t);
+  renderIntro(t);
   const firstLine = player.lines?.[0]?.start ?? 4;
-  if (t > Math.min(5, Math.max(2, firstLine - 1))) $("title-card").classList.add("gone");
+  // The title card stays up through the intro and fades 2 seconds before the singing starts.
+  if (t > Math.max(2, firstLine - 2)) $("title-card").classList.add("gone");
+  const bg = $("background-video");
+  if (!bg.hidden) player.paused ? bg.pause() : bg.paused && bg.play().catch(() => {});
   const dur = player.duration;
   $("progress-fill").style.width = dur ? `${Math.min((t / dur) * 100, 100)}%` : "0";
 }, 33);
@@ -561,13 +805,44 @@ const modeWatcher = createModeWatcher({
 
 // ---------- Updates: the installed app checks GitHub on launch ----------
 
-if (NATIVE && window.ZB_VERSION) {
-  findUpdate(window.ZB_VERSION).then((update) => {
-    if (!update) return;
-    const el = $("update-banner");
-    el.innerHTML = `Update v${update.version} is available. <a></a>`;
-    el.querySelector("a").href = update.url;
-    el.querySelector("a").textContent = "Download and install";
-    el.hidden = false;
-  }).catch(() => {}); // offline: try again next launch
+/** Downloads the APK in the app and opens Android's installer (it asks once to confirm). */
+async function installUpdate(update) {
+  const updater = window.Capacitor?.Plugins?.AppUpdater;
+  if (!updater) return window.open(update.url, "_blank"); // an older APK without the plugin
+  toast("Downloading the update…", 60000);
+  try {
+    await updater.install({ url: update.url });
+    toast("Tap Install to finish updating.");
+  } catch (error) {
+    toast(`Update failed: ${error.message}`, 5000);
+  }
 }
+
+function showUpdate(update) {
+  const el = $("update-banner");
+  el.textContent = `Update v${update.version} is available. `;
+  const button = document.createElement("button");
+  button.className = "primary";
+  button.textContent = "Update now";
+  button.onclick = () => installUpdate(update);
+  el.append(button);
+  el.hidden = false;
+}
+
+if (NATIVE && window.ZB_VERSION) {
+  findUpdate(window.ZB_VERSION).then((update) => update && showUpdate(update)).catch(() => {}); // offline: try again next launch
+}
+$("btn-check-updates").hidden = !NATIVE;
+$("btn-check-updates").onclick = async () => {
+  $("update-check-status").textContent = "Checking…";
+  try {
+    const update = await findUpdate(window.ZB_VERSION);
+    $("update-check-status").textContent = update ? `Version ${update.version} is out.` : "You're up to date.";
+    if (update) {
+      showUpdate(update);
+      installUpdate(update);
+    }
+  } catch {
+    $("update-check-status").textContent = "Couldn't check. Are you online?";
+  }
+};

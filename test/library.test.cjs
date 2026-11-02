@@ -30,6 +30,20 @@ test("songs get numbers that survive a rescan", () => {
   assert.ok(lib.songs.every((s) => s.number >= 10001 && s.number <= 99999));
 });
 
+test("pack songs keep the number in their file name, even after the packs move", () => {
+  const packs = tempSongs(["10888 - Ikaw Sana - Ogie Alcasid.mid", "20001 - Anak - Freddie Aguilar.mid"]);
+  const mine = tempSongs(["Bayan Ko - Traditional.kar"]);
+  // An old library that had drifted: pack songs renumbered past five digits, my song on a pack's number.
+  const lib = { ...library.emptyLibrary(), nextNumber: 105387, folders: [{ path: packs, name: "OPM", builtIn: true }, { path: mine, name: "Mine" }] };
+  lib.songs = [{ path: path.join(packs, "10888 - Ikaw Sana - Ogie Alcasid.mid"), number: 105000 }, { path: path.join(mine, "Bayan Ko - Traditional.kar"), number: 20001 }];
+  library.rescan(lib);
+  const numberOf = (title) => lib.songs.find((s) => s.title === title).number;
+  assert.equal(numberOf("Ikaw Sana"), 10888);
+  assert.equal(numberOf("Anak"), 20001);
+  assert.equal(numberOf("Bayan Ko"), 20002, "a song on a pack's number moves to the next free one");
+  assert.equal(lib.nextNumber, 20003);
+});
+
 test("file names give title, artist and category", () => {
   const dir = tempSongs(["OPM/Anak - Freddie Aguilar.kar"]);
   const [song] = library.addFolder(library.emptyLibrary(), dir).songs;

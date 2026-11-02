@@ -3,6 +3,7 @@
     <!-- The desktop's remote-control server is plain http:// on the home LAN, not https://. -->
     <application
         android:allowBackup="true"
+        android:hasFragileUserData="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -12,6 +13,7 @@
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
+            android:screenOrientation="fullUser"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
@@ -34,6 +36,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- AppUpdaterPlugin opens the installer on a downloaded update. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Bluetooth fallback transport (BlePeripheralPlugin): legacy permissions for
          Android <12, runtime-requested ones for Android 12+ (API 31+). -->

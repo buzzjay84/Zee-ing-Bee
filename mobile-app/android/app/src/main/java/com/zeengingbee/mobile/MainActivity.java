@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(BlePeripheralPlugin.class);
         registerPlugin(QrScannerPlugin.class);
+        registerPlugin(AppUpdaterPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

@@ -74,6 +74,8 @@ export function createOnlineVideo(container, background, onPlaying = () => {}) {
       candidateId = candidate?.id ?? null;
       if (!candidate) { container.dataset.status = "unavailable"; return; }
       container.dataset.videoId = candidate.id;
+      // The player is sized to this shape so it covers the screen like the local videos do.
+      container.style.setProperty("--aspect", candidate.aspect || 16 / 9);
       container.replaceChildren();
       const mount = document.createElement("div");
       container.append(mount);

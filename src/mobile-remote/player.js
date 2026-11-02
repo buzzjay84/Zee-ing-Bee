@@ -28,7 +28,11 @@ export class Player {
     this.synth = new WorkletSynthesizer(this.ctx);
     this.master = this.ctx.createGain();
     this.echo = this.buildEcho();
-    this.synth.connect(this.master);
+    this.lowShelf = new BiquadFilterNode(this.ctx, { type: "lowshelf", frequency: 200 });
+    this.highShelf = new BiquadFilterNode(this.ctx, { type: "highshelf", frequency: 3000 });
+    this.synth.connect(this.lowShelf);
+    this.lowShelf.connect(this.highShelf);
+    this.highShelf.connect(this.master);
     this.master.connect(this.ctx.destination);
     this.master.connect(this.echo.input);
     this.echo.output.connect(this.ctx.destination);
@@ -37,6 +41,7 @@ export class Player {
     this.seq.loopCount = 0;
     this.seq.eventHandler.addEvent("songEnded", "zb", () => this.onEnded());
     this.seq.eventHandler.addEvent("songChange", "zb", () => this.applyChannels());
+    if (this.sound) this.setSound(this.sound);
   }
 
   buildEcho() {
@@ -125,8 +130,27 @@ export class Player {
     this.master.gain.value = v;
   }
 
-  setEcho(amount) {
-    this.echo.output.gain.value = amount * 0.6;
+  /** Echo, low tone, treble (dB) and volume; kept for init() when the audio isn't up yet. */
+  setSound({ echo, low, high, volume }) {
+    this.sound = { echo, low, high, volume };
+    if (!this.master) return;
+    this.echo.output.gain.value = echo * 0.6;
+    this.lowShelf.gain.value = low;
+    this.highShelf.gain.value = high;
+    this.master.gain.value = volume;
+  }
+
+  /** A short piano chord so you hear a newly picked sound bank. */
+  async playSample() {
+    await this.ctx.resume();
+    // Channel 0 may still carry the last song's key, mix level or a muted guide melody.
+    const channel = this.synth.midiChannels[0];
+    channel.setSystemParameter("keyShift", 0);
+    channel.setSystemParameter("gain", 1);
+    channel.setSystemParameter("isMuted", false);
+    this.synth.programChange(0, 0);
+    for (const note of [60, 64, 67, 72]) this.synth.noteOn(0, note, 100);
+    setTimeout(() => { for (const note of [60, 64, 67, 72]) this.synth.noteOff(0, note); }, 1200);
   }
 
   /** Key, guide melody and mixer are per-channel system settings in the synth. */

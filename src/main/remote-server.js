@@ -138,7 +138,7 @@ function createRemoteServer({ staticDir, getSongs, searchSongs, readSongFile, re
         ws.on("message", (raw) => {
           try {
             const message = JSON.parse(raw.toString());
-            if (["reserve", "remove", "singNow", "control"].includes(message.type)) onAction(message);
+            if (["reserve", "remove", "singNow", "control", "sound"].includes(message.type)) onAction(message);
           } catch {
             // Ignore malformed messages from a phone.
           }

@@ -22,6 +22,7 @@
 <script src="./shared/bluetooth.js"></script>
 <script src="./shared/packs-url.js"></script>
 <script src="./shared/version.js"></script>
+<script src="./shared/sound-settings.js"></script>
 <script type="module" src="app.js"></script>
 </head>
 <body>
@@ -30,13 +31,14 @@
   <main id="home">
     <header class="topbar">
       <div class="brand-notes" aria-hidden="true"><span>♪</span><span>♫</span><span>♬</span><span>♪</span><span>♫</span><span>♪</span></div>
-      <div class="brand"><img class="brand-logo" src="icon.png" alt="Zee-ing Bee" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden>Zee-ing Bee</span></div>
+      <div class="brand"><img class="brand-logo" src="icon.png" alt="Zee-ing Bee" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden>Zee-ing Bee</span><small id="brand-version" class="brand-version"></small></div>
       <div class="status">
         <p id="mode-banner" class="mode-banner">Checking for a desktop…</p>
         <button id="btn-pair" class="ghost pair" hidden>Scan desktop QR</button>
         <div class="status-actions">
           <button id="btn-nickname" class="ghost pair" hidden>Set your name</button>
           <button id="btn-disconnect" class="ghost pair" hidden>Disconnect</button>
+          <button id="btn-settings" class="ghost pair">Settings</button>
           <button id="btn-support" class="ghost pair">Support</button>
         </div>
       </div>
@@ -92,22 +94,97 @@
       <h2>Support Zee-ing Bee</h2>
       <p class="muted small">Zee-ing Bee is free. If it brings you joy, you can support its development with any amount. Scan with any InstaPay-enabled bank or e-wallet.</p>
       <img id="support-qr" src="support-qr.png" alt="Support QR code" width="260" height="260">
-      <p class="small">Developed by <b>Jonybhee A. Bazan</b></p>
+      <p class="small">Developed by <b>buzzjay</b></p>
       <p class="muted small">Thank you for singing with us!</p>
       <button value="close" class="primary">Close</button>
     </form>
   </dialog>
 
+  <!-- Settings: a list of cards, each opening its own page (same as the desktop) -->
+  <dialog id="settings">
+    <form method="dialog">
+      <div class="settings-head">
+        <button type="button" id="settings-back" class="ghost" hidden>← Back</button>
+        <h2 id="settings-title">Settings</h2>
+        <button value="close" class="ghost" aria-label="Close settings">✕</button>
+      </div>
+      <input id="settings-search" class="settings-search" type="search" placeholder="Search settings" aria-label="Search settings">
+      <div id="settings-hub" class="settings-hub">
+        <button type="button" class="settings-card" data-page="sound" data-words="instruments sound bank mixer bass drums others treble tone echo volume"><span class="card-icon" aria-hidden="true">🔊</span><span><b>Sound</b><small id="sum-sound"></small></span><span aria-hidden="true">›</span></button>
+        <button type="button" class="settings-card" data-page="singing" data-words="melody guide tune volume"><span class="card-icon" aria-hidden="true">🎤</span><span><b>Singing</b><small id="sum-singing"></small></span><span aria-hidden="true">›</span></button>
+        <button type="button" class="settings-card" data-page="lyrics" data-words="lyrics size colour color words"><span class="card-icon" aria-hidden="true">📝</span><span><b>Lyrics</b><small id="sum-lyrics"></small></span><span aria-hidden="true">›</span></button>
+        <button type="button" class="settings-card" data-page="screen" data-words="screen background video"><span class="card-icon" aria-hidden="true">🖼</span><span><b>Screen and background</b><small id="sum-screen"></small></span><span aria-hidden="true">›</span></button>
+        <button type="button" class="settings-card" data-page="about" data-words="updates version about support"><span class="card-icon" aria-hidden="true">ⓘ</span><span><b>App and about</b><small>Version · updates · support</small></span><span aria-hidden="true">›</span></button>
+        <p id="settings-none" class="muted small" hidden>No setting matches that.</p>
+      </div>
+
+      <section class="settings-page" data-page="sound" data-title="Sound" hidden>
+        <div class="settings-box">
+          <h3>Instruments</h3>
+          <p class="muted small">The sound every song is played with. Tap one to switch; you hear a short sample.</p>
+          <div id="instrument-list" class="instrument-list"></div>
+        </div>
+        <div class="settings-box">
+          <h3>Sound mixer</h3>
+          <p class="muted small">How loud the bass, the drums and the rest of the band are, the low tone and treble, the echo and the volume. The same as Mixer on the stage. The tune's own volume is under Singing.</p>
+          <div id="settings-mix" class="mix-rows"></div>
+          <button type="button" id="btn-mix-reset" class="ghost">Reset the mixer</button>
+        </div>
+      </section>
+
+      <section class="settings-page" data-page="singing" data-title="Singing" hidden>
+        <div class="settings-box">
+          <h3>Melody</h3>
+          <p class="muted small">A soft guide that plays the tune, so you can follow it.</p>
+          <label class="check"><input type="checkbox" id="set-guide"> Play the melody</label>
+          <div id="singing-mix" class="mix-rows"></div>
+        </div>
+      </section>
+
+      <section class="settings-page" data-page="lyrics" data-title="Lyrics" hidden>
+        <div class="settings-box">
+          <label class="field">Size <input type="range" id="lyric-size" min="0.6" max="1.4" step="0.05"></label>
+          <label class="field">Sung colour <input type="color" id="lyric-color"></label>
+        </div>
+      </section>
+
+      <section class="settings-page" data-page="screen" data-title="Screen and background" hidden>
+        <div class="settings-box">
+          <label class="check"><input type="checkbox" id="set-backgrounds"> Background videos behind the lyrics</label>
+          <p id="backgrounds-note" class="muted small"></p>
+        </div>
+      </section>
+
+      <section class="settings-page" data-page="about" data-title="App and about" hidden>
+        <div class="settings-box">
+          <p id="app-version" class="muted small"></p>
+          <button type="button" id="btn-check-updates">Check for updates</button>
+          <p id="update-check-status" class="muted small" role="status"></p>
+          <button type="button" id="set-support">Support Zee-ing Bee</button>
+        </div>
+      </section>
+    </form>
+  </dialog>
+
   <section id="stage" hidden>
     <div class="backdrop" aria-hidden="true"><span></span><span></span><span></span></div>
+    <video id="background-video" class="background-video" muted loop playsinline hidden></video>
     <div id="title-card" class="title-card">
       <div id="tc-number" class="tc-number"></div>
       <div id="tc-title" class="tc-title"></div>
       <div id="tc-artist" class="tc-artist"></div>
     </div>
+    <div id="now-label" class="now-label"></div>
     <div class="lyrics">
+      <div id="countin" class="line countin" hidden></div>
       <div class="line slot-0" id="slot-0"></div>
       <div class="line slot-1" id="slot-1"></div>
+    </div>
+
+    <div id="intro-indicator" class="intro-indicator" hidden>
+      <span class="intro-label">INTRO</span>
+      <span id="intro-countdown" class="intro-countdown"></span>
+      <div class="intro-progress"><div id="intro-progress-fill"></div></div>
     </div>
 
     <footer class="stage-bar">
@@ -137,12 +214,7 @@
 
     <div id="mixer" class="mixer" hidden>
       <h3>Sound mixer</h3>
-      <label>Melody <input type="range" min="0" max="2" step="0.05" value="1.35" data-mix="melody"></label>
-      <label>Bass <input type="range" min="0" max="2" step="0.05" value="1" data-mix="bass"></label>
-      <label>Drums <input type="range" min="0" max="2" step="0.05" value="1" data-mix="drums"></label>
-      <label>Band <input type="range" min="0" max="2" step="0.05" value="1" data-mix="band"></label>
-      <label>Echo <input type="range" min="0" max="1" step="0.05" value="0" id="mix-echo"></label>
-      <label>Volume <input type="range" min="0" max="1.5" step="0.05" value="1" id="mix-volume"></label>
+      <div id="stage-mix" class="mix-rows"></div>
     </div>
   </section>
 </body>

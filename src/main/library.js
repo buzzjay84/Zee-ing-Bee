@@ -42,6 +42,11 @@ function walk(dir, out = []) {
   return out;
 }
 
+/** The five-digit number a pack song carries in its file name ("10888 - Title - Artist.mid"), or null. */
+function packNumber(file) {
+  return Number(path.basename(file).match(/^(\d{5})\s+-\s+/)?.[1]) || null;
+}
+
 /** "Title - Artist.kar" → { title, artist }. Underscores count as spaces. */
 function parseFileName(file) {
   const base = path.basename(file, path.extname(file)).replace(/_/g, " ").trim().replace(/^\d{5}\s+-\s+/, "");
@@ -63,27 +68,47 @@ function categoryOf(folder, file) {
  */
 function rescan(library) {
   const known = new Map(library.songs.map((s) => [s.path, s]));
-  const songs = [];
   const seen = new Set();
+  const found = [];
   for (const folder of library.folders) {
     for (const file of walk(folder.path).sort()) {
       if (seen.has(file)) continue;
       seen.add(file);
-      const old = known.get(file);
-      const meta = parseFileName(file);
-      songs.push({
-        number: old ? old.number : library.nextNumber++,
-        path: file,
-        title: meta.title,
-        artist: meta.artist,
-        category: folder.builtIn ? folder.name : categoryOf(folder.path, file),
-        builtIn: Boolean(folder.builtIn),
-      });
-      known.delete(file);
+      found.push({ folder, file });
     }
   }
-  for (const song of library.imports ?? []) {
-    if (fs.existsSync(song.path) && !seen.has(song.path)) { songs.push(song); seen.add(song.path); }
+  const imports = (library.imports ?? []).filter((song) => fs.existsSync(song.path) && !seen.has(song.path));
+  // Pack songs keep the number in their file name, so it never changes when the packs are
+  // unpacked somewhere new, and matches the phone (numberSongs in mobile-remote/packs.js).
+  const fixed = new Map(found.filter(({ folder }) => folder.builtIn).map(({ file }) => [file, packNumber(file)]).filter(([, n]) => n));
+  const taken = new Set(fixed.values());
+  // Everything else keeps its number unless a pack song now owns it or it outgrew five digits.
+  const kept = new Map();
+  for (const { file } of found.filter(({ file }) => !fixed.has(file))) {
+    const number = known.get(file)?.number;
+    if (number >= FIRST_NUMBER && number <= 99999 && !taken.has(number)) { kept.set(file, number); taken.add(number); }
+  }
+  for (const song of imports) {
+    if (song.number >= FIRST_NUMBER && song.number <= 99999 && !taken.has(song.number)) taken.add(song.number);
+    else song.number = null;
+  }
+  let highest = FIRST_NUMBER - 1;
+  for (const number of taken) if (number > highest) highest = number;
+  library.nextNumber = highest + 1;
+  const songs = found.map(({ folder, file }) => {
+    const meta = parseFileName(file);
+    return {
+      number: fixed.get(file) ?? kept.get(file) ?? library.nextNumber++,
+      path: file,
+      title: meta.title,
+      artist: meta.artist,
+      category: folder.builtIn ? folder.name : categoryOf(folder.path, file),
+      builtIn: Boolean(folder.builtIn),
+    };
+  });
+  for (const song of imports) {
+    song.number ??= library.nextNumber++;
+    songs.push(song);
   }
   songs.sort((a, b) => a.number - b.number);
   library.songs = songs;

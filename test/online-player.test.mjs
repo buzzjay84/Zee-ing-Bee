@@ -20,7 +20,7 @@ function setup(t) {
   globalThis.window = { YT: { Player: FakePlayer, PlayerState: { PLAYING: 1, ENDED: 0 } } };
   globalThis.document = { hidden: false, createElement: () => ({}), addEventListener() {} };
   globalThis.location = { origin: "app://bundle" };
-  const container = { dataset: {}, hidden: true, replaceChildren() {}, append() {} };
+  const container = { dataset: {}, style: { setProperty() {} }, hidden: true, replaceChildren() {}, append() {} };
   const controller = createOnlineVideo(container, { pause() {} });
   t.after(() => { controller.reset(); globalThis.window = previousWindow; globalThis.document = previousDocument; });
   return { controller, players };

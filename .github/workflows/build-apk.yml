@@ -6,6 +6,7 @@ on:
       - "src/mobile-remote/**"
       - "src/shared/search.js"
       - "src/shared/packs-url.js"
+      - "src/shared/sound-settings.js"
       - "mobile-app/**"
       - ".github/workflows/build-apk.yml"
   # Also runs right after "Build installers" finishes, so a version bump's APK lands on
@@ -62,6 +63,20 @@ jobs:
         run: |
           npm ci
           npx cap sync android
+
+      # Every APK must be signed with the same key, or Android refuses to install an update
+      # over the old app and people have to uninstall it - losing every downloaded song.
+      # A fresh runner would otherwise make a new random debug key each build.
+      - name: Use the app's fixed signing key
+        env:
+          ANDROID_DEBUG_KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
+        run: |
+          if [ -z "$ANDROID_DEBUG_KEYSTORE" ]; then
+            echo "::error::The ANDROID_DEBUG_KEYSTORE secret is missing; this APK could not update an installed app."
+            exit 1
+          fi
+          mkdir -p ~/.android
+          echo "$ANDROID_DEBUG_KEYSTORE" | base64 -d > ~/.android/debug.keystore
 
       - name: Build the debug APK
         working-directory: mobile-app/android

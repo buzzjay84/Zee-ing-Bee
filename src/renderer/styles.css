@@ -91,8 +91,11 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
 .songs { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .search-row { display: flex; gap: 12px; align-items: center; }
+#btn-number-pad { margin-left: auto; }
+/* Fixed width, so the search box doesn't resize as the count changes while typing. */
+#song-count { flex: 0 0 8.5em; text-align: left; white-space: nowrap; font-variant-numeric: tabular-nums; }
 #search {
-  flex: 1;
+  flex: 0 1 50%;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -170,7 +173,12 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
 /* Stage */
 #stage { position: fixed; inset: 0; background: #000; overflow: hidden; }
 .background-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
-.online-video { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
+/* Cover the screen (trimming the edges) instead of leaving black bars when the window's shape differs from the video's. */
+.online-video {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: max(100vw, calc(100vh * var(--aspect, 1.7778))); height: max(100vh, calc(100vw / var(--aspect, 1.7778)));
+  border: 0; pointer-events: none;
+}
 .video-shade { position: absolute; inset: 0; background: linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.5)); pointer-events: none; }
 .backdrop { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 120%, #4a2c00, #0b0700 70%); }
 .backdrop span {
@@ -194,9 +202,20 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
   text-shadow: 0 3px 12px #000;
 }
 .title-card.gone { opacity: 0; }
+.now-label {
+  position: absolute; top: 2vh; left: 2vw; max-width: 70vw; z-index: 2;
+  padding: 0.5vh 1.2vw; border-radius: 999px; background: rgba(0, 0, 0, 0.55);
+  font-size: 1.6vw; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: opacity 0.6s;
+}
+.now-label:empty { display: none; }
+/* Hidden while the big title card is still showing the same thing. */
+.title-card:not(.gone) ~ .now-label { opacity: 0; }
 .tc-number { font: 800 3vw/1 ui-monospace, Consolas, monospace; color: var(--honey); }
 .tc-title { font-size: 5.5vw; font-weight: 800; margin-top: 1vw; }
 .tc-artist { font-size: 2.6vw; color: #f1e4c2; }
+.tc-by { margin-top: 1.2vw; font-size: 2.2vw; font-weight: 700; color: var(--honey-2); }
+.tc-by:empty { display: none; }
 
 .lyrics {
   position: absolute;
@@ -276,15 +295,14 @@ body > .mixer { z-index: 5; }
 .stepper { display: flex; align-items: center; gap: 4px; }
 .stepper span { min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
 .toggle.on { background: var(--honey); color: #1d1300; border-color: var(--honey); }
-.guide-level { display: grid; gap: 3px; font-size: 11px; color: var(--muted); }
-.guide-level input { width: 88px; }
 .mixer {
   position: absolute; right: 20px; bottom: 84px; width: 300px;
   background: rgba(20, 14, 2, 0.95); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 14px; display: grid; gap: 10px;
 }
 .mixer h3 { margin: 0; font-size: 15px; }
-.mixer label { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 10px; font-size: 14px; }
+.mixer { max-height: calc(100vh - 120px); overflow-y: auto; }
+.mixer p { margin: 0; }
 input[type="range"] { accent-color: var(--honey); width: 100%; }
 
 /* Settings */
@@ -319,6 +337,27 @@ dialog h3 { margin: 18px 0 8px; font-size: 15px; color: var(--honey-2); }
 .row { display: flex; gap: 10px; align-items: center; }
 .row.end { justify-content: flex-end; margin-top: 18px; }
 select { flex: 1; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+#settings { width: min(620px, 94vw); max-height: 88vh; overflow-y: auto; }
+.settings-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.settings-head h2 { flex: 1; margin: 0; }
+.settings-search { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.settings-hub { display: grid; gap: 10px; }
+.settings-card { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; text-align: left; padding: 12px 14px; border-radius: var(--radius); }
+.settings-card:hover, .settings-card:focus-visible { border-color: var(--honey); }
+.settings-card b { display: block; font-size: 16px; }
+.settings-card small, .instrument small { display: block; color: var(--muted); font-size: 13px; }
+.card-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--bg); font-size: 20px; }
+.settings-box { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+.settings-box h3 { margin-top: 0; }
+.instrument-list { display: grid; gap: 8px; margin: 10px 0; }
+.instrument { text-align: left; padding: 12px 14px; border-radius: var(--radius); }
+.instrument.on { border-color: var(--honey); }
+.badge { display: inline-block; margin-top: 6px; padding: 2px 12px; border-radius: 999px; background: var(--honey); color: #1d1300; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.mix-rows { display: grid; gap: 8px; margin-bottom: 10px; }
+.mix-row { display: grid; grid-template-columns: 1fr 40px 64px 40px; align-items: center; gap: 8px; font-weight: 600; }
+.mix-row output { text-align: center; color: var(--honey-2); font-variant-numeric: tabular-nums; }
+.mix-step { width: 40px; height: 40px; padding: 0; border-radius: 50%; border-color: var(--honey); }
+.mix-step:disabled { opacity: 0.35; }
 .folder-list { list-style: none; padding: 0; margin: 0 0 10px; }
 .folder-list li { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .folder-list li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

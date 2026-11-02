@@ -73,15 +73,12 @@ function parseFileName(file) {
 }
 
 /**
- * Numbers songs the way a fresh desktop install does (bundled-songs.js + library.rescan),
- * so a phone that never met a desktop still matches the printed songbook: packs in name
- * order, each top-level folder of a pack is a category, files sorted by path, counting up
- * from 10001.
- * shortcut: assumes the desktop library holds only the packs; a desktop where folders
- * were added before the packs arrived numbers differently - pair once to use its numbers.
+ * Numbers songs the way the desktop does (bundled-songs.js + library.rescan), so a phone that
+ * never met a desktop still matches the printed songbook: each song keeps the number in its
+ * file name; any without one count on from the highest, in pack order then sorted path. Each
+ * top-level folder of a pack is a category.
  */
 export function numberSongs(packs) {
-  let number = FIRST_NUMBER;
   const songs = [];
   for (const pack of [...packs].sort((a, b) => (a.name < b.name ? -1 : 1))) {
     const folders = new Map();
@@ -96,11 +93,19 @@ export function numberSongs(packs) {
       const files = folders.get(folder).map((entry) => ({ entry, key: entry.name.replace(/\//g, "\\") }));
       files.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
       for (const { entry } of files) {
-        songs.push({ number: number++, ...parseFileName(entry.name), category: folder.replace(/^\d+\s+/, ""), pack: pack.name, entry });
+        songs.push({ number: packNumber(entry.name), ...parseFileName(entry.name), category: folder.replace(/^\d+\s+/, ""), pack: pack.name, entry });
       }
     }
   }
+  // Same as the desktop's library.rescan: the number in the file name, then counting on from the highest.
+  let next = songs.reduce((highest, song) => Math.max(highest, song.number ?? 0), FIRST_NUMBER - 1) + 1;
+  for (const song of songs) song.number ??= next++;
   return songs;
+}
+
+/** The five-digit number a pack song carries in its file name ("10888 - Title - Artist.mid"), or null. */
+function packNumber(name) {
+  return Number(name.split("/").pop().match(/^(\d{5})\s+-\s+/)?.[1]) || null;
 }
 
 /**
@@ -157,7 +162,8 @@ export function createPackStore(baseUrl = window.ZBPacks.PACKS_URL) {
   let catalog = null;
 
   async function getCatalog() {
-    catalog ??= (await idbGet(await dbPromise, "meta", "catalog")) ?? [];
+    // Numbered fresh from the stored packs each launch, so a numbering fix reaches phones that downloaded earlier.
+    catalog ??= numberSongs(Object.entries((await idbGet(await dbPromise, "meta", "stored")) ?? {}).map(([name, pack]) => ({ name, entries: pack.entries })));
     return catalog;
   }
 
@@ -212,12 +218,49 @@ export function createPackStore(baseUrl = window.ZBPacks.PACKS_URL) {
     }
   }
 
+  /**
+   * Stage background videos listed in the release's optional backgrounds.json, fetched after
+   * the songs. A missing list just means no backgrounds; it never blocks singing.
+   */
+  async function syncBackgrounds() {
+    const db = await dbPromise;
+    let list;
+    try {
+      list = JSON.parse(await (await downloadPack(`${baseUrl}/backgrounds.json`, () => {})).text());
+    } catch {
+      return;
+    }
+    if (!Array.isArray(list)) return;
+    const stored = (await idbGet(db, "meta", "backgrounds")) ?? [];
+    for (const entry of list) {
+      if (!/^[\w.-]+\.(mp4|webm)$/.test(entry?.name ?? "") || !/^[a-f0-9]{64}$/.test(entry.sha256 ?? "") || stored.includes(entry.name)) continue;
+      // A failed video is skipped until the next launch, so it never loops on mobile data.
+      try {
+        const blob = await downloadPack(`${baseUrl}/${entry.name}`, () => {});
+        if ((await sha256(blob)) !== entry.sha256) throw new Error("failed verification");
+        await idbSet(db, "packs", `background:${entry.name}`, blob);
+        stored.push(entry.name);
+        await idbSet(db, "meta", "backgrounds", stored);
+      } catch (error) {
+        console.warn(`Background ${entry.name} skipped:`, error.message);
+      }
+    }
+  }
+
+  /** The downloaded background videos, as Blobs. */
+  async function getBackgrounds() {
+    const db = await dbPromise;
+    const names = (await idbGet(db, "meta", "backgrounds")) ?? [];
+    return (await Promise.all(names.map((name) => idbGet(db, "packs", `background:${name}`)))).filter(Boolean);
+  }
+
   /** Keeps trying until everything is here; onProgress gets {phase: "retrying"} between attempts. */
   async function syncForever(onProgress, onSongs) {
     navigator.storage?.persist?.().catch(() => {});
     for (;;) {
       try {
         await syncOnce(onProgress, onSongs);
+        await syncBackgrounds();
         return onProgress({ phase: "done", percent: 100 });
       } catch (error) {
         console.warn("Song pack download failed:", error.message);
@@ -227,5 +270,5 @@ export function createPackStore(baseUrl = window.ZBPacks.PACKS_URL) {
     }
   }
 
-  return { getCatalog, getSongBytes, getSoundBank, syncForever };
+  return { getCatalog, getSongBytes, getSoundBank, getBackgrounds, syncForever };
 }

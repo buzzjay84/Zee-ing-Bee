@@ -63,6 +63,21 @@ function probeHeight(file, ffmpeg) {
   return null;
 }
 
+/** The best video size YouTube offers for a video, as { height, aspect }, without downloading it; null if unknown. */
+async function probeOnlineHeight(tool, id) {
+  if (!/^[\w-]{11}$/.test(id)) return null;
+  const output = await new Promise((resolve) => {
+    const child = spawn(tool, ["--no-warnings", "--skip-download", "-f", "bv*", "--print", "%(width)s %(height)s", `https://www.youtube.com/watch?v=${id}`], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+    let text = "";
+    const timer = setTimeout(() => child.kill(), 30000);
+    child.stdout.on("data", (chunk) => { text += chunk; });
+    child.on("error", () => { clearTimeout(timer); resolve(""); });
+    child.on("close", () => { clearTimeout(timer); resolve(text); });
+  });
+  const [width, height] = output.trim().split(" ").map(Number);
+  return height > 0 ? { height, aspect: width > 0 ? width / height : null } : null;
+}
+
 // HD files can be hundreds of MB; on a slow link the download is still fine as long as
 // it keeps making progress. So this times out on inactivity, not on total elapsed time,
 // with a generous absolute cap only as a backstop against a wedged process.
@@ -236,4 +251,4 @@ function createVideoCache(root, options = {}) {
 // Shared with main.js: whether a saved entry is done upgrading (hit the target, or capped below it).
 const atTargetQuality = (entry) => entry?.quality === VIDEO_QUALITY || Boolean(entry?.qualityCapped);
 
-module.exports = { VIDEO_QUALITY, atTargetQuality, createVideoCache, ensureDownloader, validVideo, hasAudioTrack, cancelVideoDownloads };
+module.exports = { VIDEO_QUALITY, atTargetQuality, createVideoCache, ensureDownloader, probeOnlineHeight, validVideo, hasAudioTrack, cancelVideoDownloads };

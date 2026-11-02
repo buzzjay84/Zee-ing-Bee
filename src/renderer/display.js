@@ -117,7 +117,7 @@ window.zb.onDisplayFrame((data) => {
   }
   syncVideo(data);
   online.sync(data);
-  for (const id of ["tc-number", "tc-title", "tc-artist", "stage-number"]) {
+  for (const id of ["tc-number", "tc-title", "tc-artist", "tc-by", "now-label", "stage-number"]) {
     $(id).textContent = data.text[id];
   }
   $("stage-number").hidden = !data.text["stage-number"];
