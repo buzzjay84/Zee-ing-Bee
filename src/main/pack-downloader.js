@@ -38,7 +38,8 @@ function createPackDownloader(cacheDir, options = {}) {
     const response = await fetchImpl(manifestUrl, { signal: AbortSignal.timeout(20000) });
     if (!response.ok) throw new Error("Unable to fetch the song pack list");
     const manifest = await response.json();
-    if (!Array.isArray(manifest) || manifest.some((e) => !/^[\w.-]+\.zip$/.test(e.name ?? "") || !Number.isInteger(e.size) || !/^[a-f0-9]{64}$/.test(e.sha256 ?? ""))) {
+    // .mp4/.webm are the stage backgrounds listed in backgrounds.json.
+    if (!Array.isArray(manifest) || manifest.some((e) => !/^[\w.-]+\.(zip|mp4|webm)$/.test(e.name ?? "") || !Number.isInteger(e.size) || !/^[a-f0-9]{64}$/.test(e.sha256 ?? ""))) {
       throw new Error("The song pack list is invalid");
     }
     return manifest;
@@ -108,4 +109,4 @@ function createPackDownloader(cacheDir, options = {}) {
   return { sync, needed, cacheDir, configured: Boolean(baseUrl) };
 }
 
-module.exports = { createPackDownloader, UNLOCK_FRACTION };
+module.exports = { createPackDownloader, UNLOCK_FRACTION, PACKS_URL, sha256File };

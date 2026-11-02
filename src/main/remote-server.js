@@ -55,7 +55,7 @@ function sendJson(res, status, data) {
  * standalone offline playback. Never exposed outside the LAN; `token` is casual
  * same-WiFi safety, not real auth.
  */
-function createRemoteServer({ staticDir, getSongs, searchSongs, readSongFile, readSoundbank, readSongVideo, onAction, onClientsChanged = () => {}, token = crypto.randomBytes(16).toString("hex"), port: preferredPort = 0 }) {
+function createRemoteServer({ staticDir, getSongs, searchSongs, readSongFile, readSoundbank, listSoundbanks = () => [], readSongVideo, getPackManifest = async () => [], packFile = () => null, backgroundFiles = () => [], onAction, onClientsChanged = () => {}, token = crypto.randomBytes(16).toString("hex"), port: preferredPort = 0 }) {
   let server;
   let wss;
   const clients = new Set();
@@ -70,8 +70,10 @@ function createRemoteServer({ staticDir, getSongs, searchSongs, readSongFile, re
     if (parts[1] === "ping") return sendJson(res, 200, { ok: true });
     if (parts[1] === "songs") return sendJson(res, 200, getSongs());
     if (parts[1] === "search") return sendJson(res, 200, searchSongs(getSongs(), url.searchParams.get("q") ?? ""));
+    if (parts[1] === "soundbanks") return sendJson(res, 200, listSoundbanks());
     if (parts[1] === "soundbank") {
-      const bank = await readSoundbank();
+      // No name means the one the desktop is using.
+      const bank = await readSoundbank(url.searchParams.get("name"));
       if (!bank) return sendJson(res, 404, { error: "No sound bank available" });
       res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": bank.data.length, "X-Sound-Bank-Name": bank.name });
       return res.end(bank.data);
@@ -87,6 +89,20 @@ function createRemoteServer({ staticDir, getSongs, searchSongs, readSongFile, re
       if (!file) return sendJson(res, 404, { error: "No cached video for this song" });
       return sendFetchResponse(res, mediaResponse(file, nodeRequestToFetchRequest(req, url)));
     }
+    // The desktop's song packs and stage videos, so a paired phone copies them over WiFi instead of the internet.
+    if (parts[1] === "packs" && parts[2] === "manifest.json") {
+      const manifest = await getPackManifest();
+      return manifest ? sendJson(res, 200, manifest) : sendJson(res, 404, { error: "Packs still downloading" });
+    }
+    if (parts[1] === "packs" && /^[\w.-]+\.zip$/.test(parts[2] ?? "")) {
+      const file = packFile(parts[2]);
+      if (!file) return sendJson(res, 404, { error: "No such pack" });
+      res.writeHead(200, { "Content-Type": "application/zip", "Content-Length": fs.statSync(file).size });
+      return fs.createReadStream(file).on("error", () => res.destroy()).pipe(res);
+    }
+    const backgrounds = new Map(backgroundFiles().map((file) => [path.basename(file), file]));
+    if (parts[1] === "backgrounds") return sendJson(res, 200, [...backgrounds.keys()]);
+    if (parts[1] === "background" && backgrounds.has(parts[2])) return sendFetchResponse(res, mediaResponse(backgrounds.get(parts[2]), nodeRequestToFetchRequest(req, url)));
     return sendJson(res, 404, { error: "Not found" });
   }
 

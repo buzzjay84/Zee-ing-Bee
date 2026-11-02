@@ -53,6 +53,14 @@
         <span id="song-count" class="muted small"></span>
         <button id="btn-number-pad" class="ghost" aria-expanded="false" aria-controls="number-pad">Song number</button>
       </div>
+      <!-- Right under the search, so the desktop's play controls never need a scroll. -->
+      <p id="now-playing" class="now-playing muted small">Nothing playing</p>
+      <div id="remote-controls" class="remote-controls" hidden>
+        <button data-control="previous" aria-label="Previous song">⏮</button>
+        <button data-control="pause" id="remote-pause" aria-label="Pause">❚❚</button>
+        <button data-control="next" aria-label="Next song">⏭</button>
+        <button data-control="stop" class="danger" aria-label="Stop">■</button>
+      </div>
       <div id="chips" class="chips"></div>
       <p id="search-note" class="muted small" role="status" hidden></p>
       <ol id="results" class="song-list"></ol>
@@ -61,13 +69,6 @@
 
     <section class="panel queue">
       <h2>Reserved <span id="queue-count" class="muted"></span></h2>
-      <p id="now-playing" class="now-playing muted small">Nothing playing</p>
-      <div id="remote-controls" class="remote-controls" hidden>
-        <button data-control="previous" aria-label="Previous song">⏮</button>
-        <button data-control="pause" id="remote-pause" aria-label="Pause">❚❚</button>
-        <button data-control="next" aria-label="Next song">⏭</button>
-        <button data-control="stop" class="danger" aria-label="Stop">■</button>
-      </div>
       <ol id="queue" class="queue-list"></ol>
       <p id="queue-empty" class="muted small">Reserve songs by number, even while someone sings.</p>
     </section>

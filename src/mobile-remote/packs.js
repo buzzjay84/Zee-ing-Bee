@@ -178,8 +178,29 @@ export function createPackStore(baseUrl = window.ZBPacks.PACKS_URL) {
     return data ? { name: SOUND_BANK.name, data } : null;
   }
 
+  // A paired desktop with the packs is asked first: LAN is faster and needs no internet.
+  let desktop = null;
+  let wake = () => {};
+  const fromDesktop = (name) => `${desktop.origin}/api/packs/${name}?token=${encodeURIComponent(desktop.token)}`;
+
+  /** Pairing (or null on unpairing) switches where packs come from, and ends any wait to retry. */
+  function useDesktop(pairing) {
+    desktop = pairing;
+    if (pairing) wake();
+  }
+
   async function fetchManifest() {
-    const manifest = JSON.parse(await (await downloadPack(`${baseUrl}/manifest.json`, () => {})).text());
+    let text;
+    if (desktop) {
+      try {
+        const list = JSON.parse(await (await download(fromDesktop("manifest.json"), () => {})).text());
+        if (Array.isArray(list) && list.length) text = JSON.stringify(list);
+      } catch (error) {
+        console.warn("Desktop pack list unavailable, using the internet:", error.message);
+      }
+    }
+    text ??= await (await downloadPack(`${baseUrl}/manifest.json`, () => {})).text();
+    const manifest = JSON.parse(text);
     if (!Array.isArray(manifest) || manifest.some((e) => !/^[\w.-]+\.zip$/.test(e.name ?? "") || !Number.isInteger(e.size) || !/^[a-f0-9]{64}$/.test(e.sha256 ?? ""))) {
       throw new Error("The song pack list is invalid");
     }
@@ -205,8 +226,12 @@ export function createPackStore(baseUrl = window.ZBPacks.PACKS_URL) {
     report();
     for (const entry of manifest) {
       if (stored[entry.name]?.sha256 === entry.sha256) continue;
-      const blob = await downloadPack(`${baseUrl}/${entry.name}`, (got) => report(done + Math.min(got, entry.size)));
-      if (blob.size !== entry.size || (await sha256(blob)) !== entry.sha256) throw new Error(`${entry.name} failed verification`);
+      const onBytes = (got) => report(done + Math.min(got, entry.size));
+      const verified = async (blob) => blob.size === entry.size && (await sha256(blob)) === entry.sha256 ? blob : null;
+      let blob = null;
+      if (desktop) blob = await download(fromDesktop(entry.name), onBytes).then(verified).catch(() => null);
+      blob ??= await verified(await downloadPack(`${baseUrl}/${entry.name}`, onBytes));
+      if (!blob) throw new Error(`${entry.name} failed verification`);
       await idbSet(db, "packs", entry.name, blob);
       stored[entry.name] = { sha256: entry.sha256, entries: readZipEntries(new Uint8Array(await blob.arrayBuffer())) };
       await idbSet(db, "meta", "stored", stored);
@@ -231,20 +256,42 @@ export function createPackStore(baseUrl = window.ZBPacks.PACKS_URL) {
       return;
     }
     if (!Array.isArray(list)) return;
-    const stored = (await idbGet(db, "meta", "backgrounds")) ?? [];
     for (const entry of list) {
-      if (!/^[\w.-]+\.(mp4|webm)$/.test(entry?.name ?? "") || !/^[a-f0-9]{64}$/.test(entry.sha256 ?? "") || stored.includes(entry.name)) continue;
+      if (!/^[\w.-]+\.(mp4|webm)$/.test(entry?.name ?? "") || !/^[a-f0-9]{64}$/.test(entry.sha256 ?? "")) continue;
+      // Re-checked per video: a paired desktop may have copied it over in the meantime.
+      if (((await idbGet(db, "meta", "backgrounds")) ?? []).includes(entry.name)) continue;
       // A failed video is skipped until the next launch, so it never loops on mobile data.
       try {
         const blob = await downloadPack(`${baseUrl}/${entry.name}`, () => {});
         if ((await sha256(blob)) !== entry.sha256) throw new Error("failed verification");
-        await idbSet(db, "packs", `background:${entry.name}`, blob);
-        stored.push(entry.name);
-        await idbSet(db, "meta", "backgrounds", stored);
+        await addBackground(db, entry.name, blob);
       } catch (error) {
         console.warn(`Background ${entry.name} skipped:`, error.message);
       }
     }
+  }
+
+  async function addBackground(db, name, blob) {
+    await idbSet(db, "packs", `background:${name}`, blob);
+    // Read fresh, since the release and the desktop can both be adding videos at once.
+    const stored = (await idbGet(db, "meta", "backgrounds")) ?? [];
+    if (!stored.includes(name)) await idbSet(db, "meta", "backgrounds", [...stored, name]);
+  }
+
+  /** While paired, copies the desktop's background videos over WiFi, ahead of the slower release download. */
+  async function syncBackgroundsFrom(pairing) {
+    const db = await dbPromise;
+    const query = `token=${encodeURIComponent(pairing.token)}`;
+    const names = await (await fetch(`${pairing.origin}/api/backgrounds?${query}`)).json();
+    let added = 0;
+    for (const name of Array.isArray(names) ? names : []) {
+      if (!/^[\w.-]+\.(mp4|webm)$/.test(name) || ((await idbGet(db, "meta", "backgrounds")) ?? []).includes(name)) continue;
+      const response = await fetch(`${pairing.origin}/api/background/${encodeURIComponent(name)}?${query}`);
+      if (!response.ok) continue;
+      await addBackground(db, name, await response.blob());
+      added++;
+    }
+    return added;
   }
 
   /** The downloaded background videos, as Blobs. */
@@ -265,10 +312,10 @@ export function createPackStore(baseUrl = window.ZBPacks.PACKS_URL) {
       } catch (error) {
         console.warn("Song pack download failed:", error.message);
         onProgress({ phase: "retrying" });
-        await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
+        await new Promise((resolve) => { wake = resolve; setTimeout(resolve, RETRY_MS); });
       }
     }
   }
 
-  return { getCatalog, getSongBytes, getSoundBank, getBackgrounds, syncForever };
+  return { getCatalog, getSongBytes, getSoundBank, getBackgrounds, syncBackgroundsFrom, syncForever, useDesktop };
 }

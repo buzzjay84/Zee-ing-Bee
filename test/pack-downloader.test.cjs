@@ -78,6 +78,18 @@ test("the built-in download streams to disk and reports bytes while the pack is 
   assert.equal(progress.at(-1).done, text.length);
 });
 
+test("background videos download from their own list", async () => {
+  const root = tmpRoot();
+  const text = "v".repeat(64);
+  const downloader = createPackDownloader(root, {
+    manifestUrl: "https://packs.test/backgrounds.json",
+    fetch: async (url) => (url.endsWith("backgrounds.json") ? { ok: true, json: async () => [{ name: "abstract.mp4", size: text.length, sha256: sha256(text) }] } : { ok: false }),
+    downloadFile: async (_url, dest) => fs.writeFileSync(dest, text),
+  });
+  await downloader.sync();
+  assert.equal(fs.readFileSync(path.join(root, "abstract.mp4"), "utf8"), text);
+});
+
 test("an invalid manifest is rejected before any download is attempted", async () => {
   const root = tmpRoot();
   let downloads = 0;

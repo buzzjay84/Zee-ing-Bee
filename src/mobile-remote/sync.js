@@ -4,6 +4,7 @@
 // such restriction.
 const DB_NAME = "zb-remote";
 const DB_VERSION = 1;
+const MAX_BANK_BYTES = 150 * 1024 * 1024;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -50,8 +51,21 @@ export function createSync() {
     if (syncing) return;
     syncing = true;
     try {
-      const bankResponse = await fetch(`${pairing.origin}/api/soundbank?token=${pairing.token}`);
-      if (bankResponse.ok) {
+      const listResponse = await fetch(`${pairing.origin}/api/soundbanks?token=${pairing.token}`);
+      const banks = listResponse.ok ? await listResponse.json() : null;
+      // Every desktop bank the phone can hold; older desktops only offer the one in use (below).
+      for (const bank of Array.isArray(banks) ? banks : []) {
+        const list = (await idbGet(db, "meta", "soundbank-list")) ?? [];
+        // shortcut: banks over MAX_BANK_BYTES are skipped, since the phone loads a whole bank into memory; raise it if phones cope.
+        if (list.some((saved) => saved.name === bank.name) || bank.size > MAX_BANK_BYTES) continue;
+        const response = await fetch(`${pairing.origin}/api/soundbank?name=${encodeURIComponent(bank.name)}&token=${pairing.token}`);
+        if (!response.ok) continue;
+        const data = await response.arrayBuffer();
+        await idbSet(db, "meta", `soundbank:${bank.name}`, data);
+        await idbSet(db, "meta", "soundbank-list", [...list, { name: bank.name, size: data.byteLength }]);
+      }
+      const bankResponse = banks ? null : await fetch(`${pairing.origin}/api/soundbank?token=${pairing.token}`);
+      if (bankResponse?.ok) {
         const name = bankResponse.headers.get("X-Sound-Bank-Name") ?? "default";
         if ((await idbGet(db, "meta", "soundbank-name")) !== name) {
           await idbSet(db, "meta", "soundbank-data", await bankResponse.arrayBuffer());
@@ -96,12 +110,20 @@ export function createSync() {
     return (await idbGet(await dbPromise, "songs", key)) ?? null;
   }
 
-  async function getSoundBank() {
+  /**
+   * The banks copied from desktops, plus the single one older desktops sent, as
+   * {name, size, load()}: a bank is tens of MB, so only the one being played is read.
+   */
+  async function getSoundBanks() {
     const db = await dbPromise;
-    const name = await idbGet(db, "meta", "soundbank-name");
-    const data = await idbGet(db, "meta", "soundbank-data");
-    return name && data ? { name, data } : null;
+    const banks = ((await idbGet(db, "meta", "soundbank-list")) ?? []).map(({ name, size }) => ({ name, size, load: () => idbGet(db, "meta", `soundbank:${name}`) }));
+    const legacyName = await idbGet(db, "meta", "soundbank-name");
+    if (legacyName && !banks.some((bank) => bank.name === legacyName)) {
+      const data = await idbGet(db, "meta", "soundbank-data");
+      if (data) banks.push({ name: legacyName, size: data.byteLength, load: async () => data });
+    }
+    return banks;
   }
 
-  return { startBackgroundSync, downloadVideoForOffline, getCatalog, getSongBytes, getSoundBank };
+  return { startBackgroundSync, downloadVideoForOffline, getCatalog, getSongBytes, getSoundBanks };
 }

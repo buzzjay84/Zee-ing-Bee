@@ -153,3 +153,42 @@ test("API responses allow the installed app's cross-origin calls", async () => {
     server.stop();
   }
 });
+
+test("serves the desktop's song packs and stage videos to a paired phone", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "zb-remote-packs-"));
+  fs.writeFileSync(path.join(dir, "a.zip"), "zipdata");
+  fs.writeFileSync(path.join(dir, "bg.mp4"), "video");
+  const { server, port, token } = await startServer({
+    getPackManifest: async () => [{ name: "a.zip", size: 7, sha256: "x" }],
+    packFile: (name) => (name === "a.zip" ? path.join(dir, "a.zip") : null),
+    backgroundFiles: () => [path.join(dir, "bg.mp4")],
+  });
+  const api = (p) => fetch(`http://127.0.0.1:${port}/api/${p}?token=${token}`);
+  try {
+    assert.deepEqual(await (await api("packs/manifest.json")).json(), [{ name: "a.zip", size: 7, sha256: "x" }]);
+    assert.equal(await (await api("packs/a.zip")).text(), "zipdata");
+    assert.equal((await api("packs/missing.zip")).status, 404);
+    assert.deepEqual(await (await api("backgrounds")).json(), ["bg.mp4"]);
+    assert.equal(await (await api("background/bg.mp4")).text(), "video");
+    assert.equal((await api("background/..%2Fsecret.mp4")).status, 404);
+  } finally {
+    server.stop?.();
+  }
+});
+
+test("lists the desktop's sound banks and serves one by name", async () => {
+  const asked = [];
+  const { server, port, token } = await startServer({
+    listSoundbanks: () => [{ name: "classic", size: 4 }],
+    readSoundbank: async (name) => { asked.push(name); return { name: name ?? "active", data: Buffer.from("bank") }; },
+  });
+  try {
+    assert.deepEqual(await (await fetch(`http://127.0.0.1:${port}/api/soundbanks?token=${token}`)).json(), [{ name: "classic", size: 4 }]);
+    const one = await fetch(`http://127.0.0.1:${port}/api/soundbank?name=classic&token=${token}`);
+    assert.equal(one.headers.get("x-sound-bank-name"), "classic");
+    await (await fetch(`http://127.0.0.1:${port}/api/soundbank?token=${token}`)).arrayBuffer();
+    assert.deepEqual(asked, ["classic", null]);
+  } finally {
+    server.stop();
+  }
+});

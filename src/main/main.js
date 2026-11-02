@@ -12,7 +12,7 @@ const { validateQuery, searchKaraoke } = require("./karaoke");
 const { mediaResponse } = require("./media-response");
 const { createAssetExporter } = require("./asset-exports");
 const { createUpdater } = require("./updater");
-const { createPackDownloader, UNLOCK_FRACTION } = require("./pack-downloader");
+const { createPackDownloader, UNLOCK_FRACTION, PACKS_URL, sha256File } = require("./pack-downloader");
 const { createRemoteServer } = require("./remote-server");
 const { searchSongs } = require("../shared/search");
 const qrcode = require("qrcode");
@@ -28,6 +28,7 @@ const appIcon = path.join(resourcesDir, "icons", "zee-ing-bee.png");
 const libraryFile = () => path.join(app.getPath("userData"), "library.json");
 const bundledPacksDir = () => app.isPackaged ? path.join(resourcesDir, "packs") : path.join(appRoot, "src", "assets", "packs");
 const downloadedPacksDir = () => path.join(app.getPath("userData"), "song-packs");
+const backgroundsDir = () => path.join(app.getPath("userData"), "backgrounds");
 const PACK_RETRY_MS = 60000;
 
 let lib;
@@ -195,6 +196,7 @@ function downloadSongPacks(onProgress) {
             lastDone = p.done;
           });
           setStatus({ state: "done", percent: 100 });
+          packManifest()?.catch(() => {}); // checksum now, so paired phones get the list fast
           addSongs();
           return;
         } catch (error) {
@@ -262,14 +264,45 @@ async function remoteSongFile(number) {
   return fs.promises.readFile(song.path).catch(() => null);
 }
 
-async function remoteSoundbank() {
-  const active = lib.settings.soundBank ?? soundBanks()[0]?.path;
+const bankLabel = (file) => path.basename(file, path.extname(file));
+
+async function remoteSoundbank(name) {
+  const active = name ? soundBanks().find((bank) => bankLabel(bank.path) === name)?.path : lib.settings.soundBank ?? soundBanks()[0]?.path;
   if (!active) return null;
   try {
-    return { name: path.basename(active, path.extname(active)), data: await fs.promises.readFile(active) };
+    return { name: bankLabel(active), data: await fs.promises.readFile(active) };
   } catch {
     return null;
   }
+}
+
+/** Stage videos: bundled when running from source; installs download them from the release (backgroundsDir). */
+function backgroundFiles() {
+  return [path.join(appRoot, "src", "assets", "videos"), backgroundsDir()].flatMap((dir) => {
+    try { return fs.readdirSync(dir).filter((f) => /\.(mp4|webm|m4v)$/i.test(f)).map((f) => path.join(dir, f)); } catch { return []; }
+  });
+}
+
+/** The song pack zips this desktop has, bundled or downloaded, by name. */
+function packFiles() {
+  const files = new Map();
+  for (const dir of [bundledPacksDir(), downloadedPacksDir()]) {
+    try { for (const name of fs.readdirSync(dir)) if (/^[\w.-]+\.zip$/.test(name)) files.set(name, path.join(dir, name)); } catch {}
+  }
+  return files;
+}
+
+// Hashing ~1 GB of packs takes a while, so each file is hashed once per size/mtime.
+const packHashes = new Map();
+function packManifest() {
+  // Mid-download, the list would look complete to phones; they use the release's list until then.
+  if (packStatus.state !== "done" && createPackDownloader(downloadedPacksDir()).needed(bundledPacksDir())) return null;
+  return Promise.all([...packFiles()].map(async ([name, file]) => {
+    const { size, mtimeMs } = fs.statSync(file);
+    const key = `${file}|${size}|${mtimeMs}`;
+    if (!packHashes.has(key)) packHashes.set(key, sha256File(file).catch((error) => { packHashes.delete(key); throw error; }));
+    return { name, size, sha256: await packHashes.get(key) };
+  }));
 }
 
 async function remoteSongVideo(number) {
@@ -387,14 +420,13 @@ function registerIpc() {
     const saved = savedVideos.get(song);
     const cached = saved && !looksWatermarked(saved.title) ? saved : null;
     const match = cached ?? matchVideo(musicVideos, song);
-    const dir = path.join(appRoot, "src", "assets", "videos");
-    const backgrounds = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /\.(mp4|webm|m4v)$/i.test(f)) : [];
-    const random = backgrounds.length ? path.join(dir, backgrounds[Math.floor(Math.random() * backgrounds.length)]) : null;
+    const backgrounds = backgroundFiles();
+    const random = backgrounds.length ? backgrounds[Math.floor(Math.random() * backgrounds.length)] : null;
     // Low-resolution saves still play offline, but stream online so they get re-saved in HD
     // (unless the source itself is capped below the target — then this is as good as it gets).
     const complete = cached?.hasAudio && atTargetQuality(cached);
     if (complete && win && !win.isDestroyed()) win.webContents.send("video:status", { songPath, state: "saved" });
-    return { matched: Boolean(match), cached: Boolean(complete), videoId: complete ? cached.id : undefined, url: match ? videoUrl(match.path) : random ? videoUrl(random) : null, fallback: random ? videoUrl(random) : null, backgrounds: backgrounds.map((file) => videoUrl(path.join(dir, file))) };
+    return { matched: Boolean(match), cached: Boolean(complete), videoId: complete ? cached.id : undefined, url: match ? videoUrl(match.path) : random ? videoUrl(random) : null, fallback: random ? videoUrl(random) : null, backgrounds: backgrounds.map(videoUrl) };
   });
   ipcMain.handle("display:open", (event) => {
     if (event.sender === win.webContents) openDisplay();
@@ -627,6 +659,9 @@ app.whenReady().then(async () => {
     loading.webContents.executeJavaScript(`document.querySelector("h2").textContent = ${JSON.stringify(title)}; document.querySelector("p").textContent = ${JSON.stringify(detail)};`).catch(() => {});
   };
   await downloadSongPacks(showPackProgress);
+  // Stage videos behind songs with no music video (the full install bundles them); a failure just retries next launch.
+  // .part files never match the background filter, so a half-finished video is never picked.
+  if (!process.env.ZB_SMOKE && !fs.existsSync(path.join(appRoot, "src", "assets", "videos"))) createPackDownloader(backgroundsDir(), { manifestUrl: `${PACKS_URL}/backgrounds.json` }).sync().catch((error) => console.warn("Background video download failed:", error.message));
   libraryReady = loadLibrary();
   await libraryReady;
   registerIpc();
@@ -638,12 +673,17 @@ app.whenReady().then(async () => {
       searchSongs,
       readSongFile: remoteSongFile,
       readSoundbank: remoteSoundbank,
+      listSoundbanks: () => soundBanks().map((bank) => ({ name: bankLabel(bank.path), size: fileSize(bank.path) })),
       readSongVideo: remoteSongVideo,
+      getPackManifest: packManifest,
+      packFile: (name) => packFiles().get(name) ?? null,
+      backgroundFiles,
       onAction: (action) => { if (win && !win.isDestroyed()) win.webContents.send("remote:action", action); },
       onClientsChanged: (count) => { if (win && !win.isDestroyed()) win.webContents.send("remote:clients", count); },
       token: remoteToken(),
       port: 47800,
     });
+    packManifest()?.catch(() => {}); // a full install already has every pack: checksum it for phones now
     remoteServer.start()
       .then(() => console.log("Remote control server listening:", remoteServer.info().networks.map((n) => n.url).join(" or ")))
       .catch((error) => console.warn("Remote control server failed to start:", error.message));

@@ -97,9 +97,12 @@ function applyLyricStyle() {
   document.documentElement.style.setProperty("--sung", settings.lyricColor ?? "#ffd34d");
 }
 
-/** The desktop's sound bank (synced while paired) and the one downloaded with the song packs. */
+/** The desktop's sound banks (synced while paired) and the one downloaded with the song packs. */
 async function soundBanks() {
-  return (await Promise.all([sync.getSoundBank(), packs.getSoundBank()])).filter(Boolean);
+  const fromPacks = await packs.getSoundBank();
+  const banks = [...await sync.getSoundBanks(), fromPacks && { name: fromPacks.name, size: fromPacks.data.byteLength, load: async () => fromPacks.data }].filter(Boolean);
+  // The desktop and the song packs can both carry GeneralUser GS; list it once.
+  return [...new Map(banks.reverse().map((bank) => [bank.name, bank])).values()].reverse();
 }
 
 async function currentSoundBank() {
@@ -116,7 +119,7 @@ async function pickSoundBank(bank) {
   try {
     midiReady ??= midiPlayer.init();
     await midiReady;
-    await midiPlayer.loadSoundBank(bank.name, bank.data);
+    if (midiPlayer.soundBankPath !== bank.name) await midiPlayer.loadSoundBank(bank.name, await bank.load());
     await midiPlayer.playSample();
   } catch (error) {
     toast(error.message, 4000);
@@ -137,7 +140,7 @@ async function renderInstruments() {
       const name = document.createElement("b");
       name.textContent = bankName(bank);
       const info = document.createElement("small");
-      info.textContent = `${Math.round(bank.data.byteLength / 1048576)} MB`;
+      info.textContent = `${Math.round(bank.size / 1048576)} MB`;
       card.append(name, info);
       if (on) {
         const badge = document.createElement("span");
@@ -525,7 +528,13 @@ async function enterRemoteMode() {
   renderChips();
   renderSongs();
   connectWs();
-  sync.startBackgroundSync(state.pairing, songs, renderSyncProgress, (song) => NATIVE && song.builtIn).catch(() => {});
+  // Songs first (tiny), then the desktop's stage videos for singing on the phone later.
+  const pairing = state.pairing;
+  packs.useDesktop(pairing);
+  sync.startBackgroundSync(pairing, songs, renderSyncProgress, (song) => NATIVE && song.builtIn).catch(() => {})
+    .then(() => packs.syncBackgroundsFrom(pairing))
+    .then((added) => { if (added) backgroundUrls = null; })
+    .catch((error) => console.warn("Copying background videos from the desktop failed:", error.message));
 }
 
 // ---------- Bluetooth mode: same remote as WiFi, but search runs on the desktop (no catalog download) ----------
@@ -640,7 +649,7 @@ async function singLocal(song) {
     if (!bank) throw new Error("No sound bank has synced from a desktop yet.");
     midiReady ??= midiPlayer.init();
     await midiReady;
-    await midiPlayer.loadSoundBank(bank.name, bank.data);
+    if (midiPlayer.soundBankPath !== bank.name) await midiPlayer.loadSoundBank(bank.name, await bank.load());
     player = midiPlayer;
     await player.play(song, bytes);
     startBackground();
@@ -674,6 +683,7 @@ if (NATIVE) {
 
 async function enterStandaloneMode() {
   state.mode = "standalone";
+  packs.useDesktop(null);
   state.ws?.close();
   state.ws = null;
   // Restored before the catalog loads, so nothing in between can save an empty list over it.

@@ -102,7 +102,7 @@ button:disabled { opacity: 0.4; }
 .pad-actions button { min-height: 48px; }
 
 .queue h2 { font-size: 16px; margin: 0 0 6px; }
-.now-playing { margin: 0 0 6px; }
+.now-playing { margin: 10px 0 6px; }
 .remote-controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0 0 8px; }
 .remote-controls button { min-height: 48px; font-size: 18px; }
 #update-banner a { color: var(--honey-2); font-weight: 700; }
