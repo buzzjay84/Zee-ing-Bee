@@ -188,6 +188,13 @@ function setDigits(d) {
       : "Type a song number";
 }
 
+$("btn-number-pad").onclick = () => {
+  const pad = $("number-pad");
+  pad.hidden = !pad.hidden;
+  $("btn-number-pad").setAttribute("aria-expanded", String(!pad.hidden));
+};
+$("btn-number-pad-close").onclick = () => $("btn-number-pad").click();
+$("btn-support").onclick = () => $("support").showModal();
 $("keypad").addEventListener("click", (event) => {
   const key = event.target.closest("button")?.dataset.key;
   if (key === "clear") setDigits("");

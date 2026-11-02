@@ -12,7 +12,9 @@ async function prepareBundledSongs(packsDir, cacheDir) {
     const version = `${stat.size}:${stat.mtimeMs}`;
     const target = path.join(cacheDir, path.basename(name, ".zip"));
     const marker = path.join(target, ".complete");
-    if (fs.existsSync(marker) && fs.readFileSync(marker, "utf8") === version) continue;
+    // Match on size only: dev and installed builds share this cache but their zips carry different dates.
+    // shortcut: a repacked zip with the exact same size is not re-extracted; key on the .sha256 sidecar if that ever bites.
+    if (fs.existsSync(marker) && fs.readFileSync(marker, "utf8").split(":")[0] === String(stat.size)) continue;
     fs.mkdirSync(target, { recursive: true });
     await extract(archive, { dir: target });
     fs.writeFileSync(marker, version);

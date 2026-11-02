@@ -92,6 +92,8 @@ button:disabled { opacity: 0.4; }
   padding: 12px 0;
 }
 .number-song { text-align: center; min-height: 1.4em; margin: 8px 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pad-head { display: flex; align-items: center; justify-content: space-between; margin: -6px -6px 8px 0; }
+.pad-head button { padding: 2px 10px; min-height: 32px; }
 .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .keypad button { font-size: 22px; font-weight: 700; padding: 10px 0; min-height: 52px; }
 .keypad button.soft { color: var(--muted); }
@@ -147,7 +149,12 @@ button:disabled { opacity: 0.4; }
 .song-list .row-actions button { padding: 4px 10px; min-height: 36px; font-size: 13px; }
 .empty { text-align: center; padding: 16px 8px; }
 /* Phones: search comes first, so cap the list and keep the reserve list and keypad close below. */
-@media (max-width: 719px) { .song-list { max-height: 60vh; overflow-y: auto; } }
+@media (max-width: 719px) {
+  .song-list { max-height: 60vh; overflow-y: auto; }
+  /* Search gets the full width; the count and Song number button go on the line below. */
+  .search-row { flex-wrap: wrap; justify-content: space-between; }
+  #search { flex-basis: 100%; }
+}
 
 /* Tablets and landscape: songs on the left, keypad and queue on the right, like the desktop. */
 @media (min-width: 720px) {
@@ -237,9 +244,25 @@ button:disabled { opacity: 0.4; }
 .mixer label { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 10px; font-size: 14px; }
 input[type="range"] { accent-color: var(--honey); width: 100%; }
 
+/* The keypad floats over the songs when opened, so it shows up where you are instead of far below. */
+#number-pad {
+  position: fixed; left: 0; right: 0; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 9;
+  width: min(380px, calc(100vw - 24px)); margin: 0 auto;
+  border-color: var(--honey); box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.6);
+}
+
 #toast {
   position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
   background: var(--panel-2); border: 1px solid var(--honey); border-radius: 999px;
   padding: 10px 18px; z-index: 10; max-width: 90vw; text-align: center;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
+
+/* Support */
+#support { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; text-align: center; }
+#support { width: min(360px, 92vw); }
+#support h2 { margin: 0 0 6px; font-size: 18px; color: var(--honey-2); }
+#support p { margin: 6px 0; }
+#support::backdrop { background: rgba(0, 0, 0, 0.6); }
+#support-qr { display: block; margin: 0 auto 12px; width: min(260px, 70vw); height: auto; border-radius: 8px; }
+#support button { width: 100%; min-height: 44px; }

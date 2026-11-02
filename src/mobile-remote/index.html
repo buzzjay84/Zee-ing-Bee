@@ -37,6 +37,7 @@
         <div class="status-actions">
           <button id="btn-nickname" class="ghost pair" hidden>Set your name</button>
           <button id="btn-disconnect" class="ghost pair" hidden>Disconnect</button>
+          <button id="btn-support" class="ghost pair">Support</button>
         </div>
       </div>
     </header>
@@ -48,6 +49,7 @@
       <div class="search-row">
         <input id="search" type="search" placeholder="Search title, artist or number" autocomplete="off">
         <span id="song-count" class="muted small"></span>
+        <button id="btn-number-pad" class="ghost" aria-expanded="false" aria-controls="number-pad">Song number</button>
       </div>
       <div id="chips" class="chips"></div>
       <p id="search-note" class="muted small" role="status" hidden></p>
@@ -68,7 +70,8 @@
       <p id="queue-empty" class="muted small">Reserve songs by number, even while someone sings.</p>
     </section>
 
-    <section class="panel pad">
+    <section id="number-pad" class="panel pad" hidden>
+      <div class="pad-head"><span class="muted small">Song number</span><button id="btn-number-pad-close" class="ghost" aria-label="Close song number">✕</button></div>
       <div id="number-display" class="number-display" aria-live="polite">-----</div>
       <div id="number-song" class="number-song muted">Type a song number</div>
       <div class="keypad" id="keypad">
@@ -83,6 +86,17 @@
       </div>
     </section>
   </main>
+
+  <dialog id="support">
+    <form method="dialog">
+      <h2>Support Zee-ing Bee</h2>
+      <p class="muted small">Zee-ing Bee is free. If it brings you joy, you can support its development with any amount. Scan with any InstaPay-enabled bank or e-wallet.</p>
+      <img id="support-qr" src="support-qr.png" alt="Support QR code" width="260" height="260">
+      <p class="small">Developed by <b>Jonybhee A. Bazan</b></p>
+      <p class="muted small">Thank you for singing with us!</p>
+      <button value="close" class="primary">Close</button>
+    </form>
+  </dialog>
 
   <section id="stage" hidden>
     <div class="backdrop" aria-hidden="true"><span></span><span></span><span></span></div>

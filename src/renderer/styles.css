@@ -128,6 +128,8 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
 .empty { text-align: center; margin: auto; max-width: 420px; }
 
 .side { grid-column: 3; grid-row: 2; overflow-y: auto; min-height: 0; }
+/* The number pad is tucked away by default; search is the main way in. */
+#home:has(> .side[hidden]) { grid-template-columns: minmax(0, 1fr) 260px; }
 .number-display {
   font: 800 48px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
   letter-spacing: 8px;
@@ -138,6 +140,8 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
   padding: 14px 0;
 }
 .number-song { text-align: center; min-height: 2.8em; margin: 8px 0; font-size: 14px; }
+.pad-head { display: flex; align-items: center; justify-content: space-between; margin: -6px -6px 8px 0; }
+.pad-head button { padding: 2px 10px; min-height: 32px; }
 .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .keypad button { font-size: 22px; font-weight: 700; padding: 12px 0; }
 .keypad button.soft { color: var(--muted); }
@@ -295,6 +299,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 #remote { width: min(360px, 92vw); text-align: center; }
 #remote-qr { display: block; margin: 12px auto; background: #fff; border-radius: 8px; padding: 10px; }
 #remote-url { word-break: break-all; }
+#support { width: min(360px, 92vw); text-align: center; }
+#support-qr { display: block; margin: 0 auto 12px; max-width: 70vw; height: auto; border-radius: 8px; }
 .remote-status { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); font-size: 13px; }
 .remote-status.on { background: #1d3a1f; color: #a6e3a1; }
 .remote-steps { text-align: left; margin: 10px 0; padding-left: 20px; }

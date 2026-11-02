@@ -676,6 +676,13 @@ function wire() {
     if (file) toast("Songbook saved");
   };
   $("btn-settings").onclick = () => $("settings").showModal();
+  $("btn-number-pad").onclick = () => {
+    const pad = $("number-pad");
+    pad.hidden = !pad.hidden;
+    $("btn-number-pad").setAttribute("aria-expanded", String(!pad.hidden));
+  };
+  $("btn-number-pad-close").onclick = () => $("btn-number-pad").click();
+  $("btn-support").onclick = () => $("support").showModal();
   $("btn-add-soundbank").onclick = async () => applyLibrary(await window.zb.addSoundBank());
   $("soundbank-select").onchange = async (e) => applyLibrary(await window.zb.setSettings({ soundBank: e.target.value }));
   $("lyric-size").oninput = (e) => {
@@ -733,7 +740,7 @@ function wire() {
   // Keyboard: on the song list, typing goes to the search box (it finds numbers too);
   // on stage, where the search is hidden, digits go to the number pad to reserve.
   document.addEventListener("keydown", (e) => {
-    const typing = e.target.matches("input[type=search], input[type=text]") || $("settings").open || $("online-karaoke").open || $("music-library").open;
+    const typing = e.target.matches("input[type=search], input[type=text]") || $("settings").open || $("online-karaoke").open || $("music-library").open || $("support").open;
     if (typing) return;
     const onStage = Boolean(player.song);
     if (!onStage && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) return $("search").focus();
